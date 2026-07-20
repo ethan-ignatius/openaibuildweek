@@ -1,0 +1,22 @@
+{
+  "name": "teacher-brain",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/shared"
+  ],
+  "scripts": {
+    "build": "npm run build --workspace @teacher-brain/shared && npm run build --workspace @teacher-brain/board",
+    "dev:board": "npm run dev --workspace @teacher-brain/board",
+    "test": "npm run test --workspace @teacher-brain/board",
+    "typecheck": "npm run typecheck --workspace @teacher-brain/shared && npm run typecheck --workspace @teacher-brain/board",
+    "verify:m0": "node scripts/verify-m0.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.61.1"
+  }
+}

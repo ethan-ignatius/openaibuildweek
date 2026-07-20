@@ -128,3 +128,42 @@ These constraints are enforced in code and documentation:
 
 Teacher Brain is being built for a 36-hour hackathon. Development starts with M0;
 each milestone is accepted only after its Definition of Done passes.
+
+## M0 Quick Start
+
+Prerequisites are Python 3.11+ and Node.js 20+.
+
+```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install -e ".[dev]"
+npm install
+```
+
+Start the API and projector app in separate terminals:
+
+```bash
+.venv/bin/python -m uvicorn server.app.main:app --host 127.0.0.1 --port 8000
+npm run dev:board
+```
+
+Open `http://127.0.0.1:5173`, then inject and highlight a math element:
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/board/actions \
+  -H 'Content-Type: application/json' \
+  -d '{"type":"board.write_math","region":"center","latex":"3x + 5 = 20","element_id":"demo-equation"}'
+
+curl -X POST http://127.0.0.1:8000/api/board/actions \
+  -H 'Content-Type: application/json' \
+  -d '{"type":"board.highlight","element_id":"demo-equation","style":"pulse"}'
+```
+
+Run the automated checks with:
+
+```bash
+.venv/bin/python -m pytest
+npm test
+npm run typecheck
+npm run build
+npm run verify:m0  # requires the API and board dev servers
+```

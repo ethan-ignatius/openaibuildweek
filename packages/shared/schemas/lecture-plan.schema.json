@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://teacher-brain.local/schemas/lecture-plan.schema.json",
+  "title": "Lecture plan",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "title", "source_ref", "beats"],
+  "properties": {
+    "id": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "title": { "type": "string", "minLength": 1, "maxLength": 500 },
+    "source_ref": { "type": "string", "minLength": 1, "maxLength": 2048 },
+    "beats": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "objective", "board_actions", "narration_segments"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "objective": { "type": "string", "minLength": 1, "maxLength": 2000 },
+          "board_actions": {
+            "type": "array",
+            "items": {
+              "$ref": "https://teacher-brain.local/schemas/board-action.schema.json"
+            }
+          },
+          "narration_segments": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["text", "language"],
+              "properties": {
+                "text": { "type": "string", "minLength": 1, "maxLength": 10000 },
+                "language": { "type": "string", "minLength": 2, "maxLength": 35 },
+                "highlight_element_id": { "type": "string", "minLength": 1, "maxLength": 128 }
+              }
+            }
+          },
+          "checkpoint_question": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["display_text"],
+            "properties": {
+              "display_text": { "type": "string", "minLength": 1, "maxLength": 5000 },
+              "options": {
+                "type": "array",
+                "minItems": 2,
+                "maxItems": 10,
+                "items": { "type": "string", "minLength": 1, "maxLength": 500 }
+              },
+              "target_student": { "type": "string", "minLength": 1, "maxLength": 100 }
+            }
+          }
+        }
+      }
+    }
+  }
+}
