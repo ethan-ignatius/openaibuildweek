@@ -541,8 +541,8 @@ export function genericTutorScene(turn: TutorTurn, revision: number): Excalidraw
   const visualKind = turn.visual.kind ?? (arithmeticMatch ? "groups" : "concept");
   const displayTitle = truncateLine(turn.visual.title, 68);
   const titleFontSize = displayTitle.length > 50 ? 34 : displayTitle.length > 38 ? 38 : 43;
-  const keyIdeaFontSize = keyIdea.length > 115 ? 24 : keyIdea.length > 78 ? 26 : 29;
-  const keyIdeaLineLength = keyIdeaFontSize <= 24 ? 61 : keyIdeaFontSize <= 26 ? 56 : 52;
+  const keyIdeaFontSize = keyIdea.length > 115 ? 22 : keyIdea.length > 78 ? 24 : 27;
+  const keyIdeaLineLength = keyIdeaFontSize <= 22 ? 66 : keyIdeaFontSize <= 24 ? 61 : 55;
   const sectionLabels: Record<NonNullable<TutorTurn["visual"]["kind"]>, string> = {
     concept: "CONNECT THE IDEAS",
     sequence: "FOLLOW THE STEPS",
@@ -556,14 +556,14 @@ export function genericTutorScene(turn: TutorTurn, revision: number): Excalidraw
     text("tutor-title", displayTitle, 72, 61, titleFontSize, palette.navy),
     { id: "decor-spark-1", type: "diamond", x: 1_292, y: 40, width: 28, height: 28, strokeColor: palette.sun, backgroundColor: palette.sunSoft, fillStyle: "solid" },
     { id: "decor-spark-2", type: "diamond", x: 1_335, y: 74, width: 17, height: 17, strokeColor: palette.purple, backgroundColor: palette.purpleSoft, fillStyle: "solid" },
-    { id: "big-idea-panel", type: "rectangle", x: 70, y: 126, width: 830, height: 180, strokeColor: palette.blue, backgroundColor: palette.blueSoft, fillStyle: "solid", strokeWidth: 2 },
+    { id: "big-idea-panel", type: "rectangle", x: 70, y: 126, width: 830, height: 200, strokeColor: palette.blue, backgroundColor: palette.blueSoft, fillStyle: "solid", strokeWidth: 2 },
     { id: "big-idea-dot", type: "ellipse", x: 100, y: 151, width: 42, height: 42, strokeColor: palette.blue, backgroundColor: palette.paper, fillStyle: "solid", strokeWidth: 2, label: "★" },
     text("big-idea-label", turn.disposition === "clarify" ? "LET’S CHECK WHAT I HEARD" : turn.disposition === "defer" ? "A SAFE NEXT STEP" : "THE BIG IDEA", 160, 156, 18, palette.blue),
-    text("big-idea-copy", wrapText(keyIdea, keyIdeaLineLength, 3), 105, 214, keyIdeaFontSize, palette.navy),
-    { id: "example-panel", type: "rectangle", x: 930, y: 126, width: 440, height: 180, strokeColor: palette.sun, backgroundColor: palette.sunSoft, fillStyle: "solid", strokeWidth: 2 },
+    text("big-idea-copy", wrapText(keyIdea, keyIdeaLineLength, 3), 105, 210, keyIdeaFontSize, palette.navy),
+    { id: "example-panel", type: "rectangle", x: 930, y: 126, width: 440, height: 200, strokeColor: palette.sun, backgroundColor: palette.sunSoft, fillStyle: "solid", strokeWidth: 2 },
     text("example-label", englishRecap ? "English recap" : equation ? "SEE IT WITH NUMBERS" : "MAKE IT REAL", 965, 156, 18, palette.sun),
-    text("example-copy", wrapText(equation ? `${example}\n${equation.replace("*", "×").replace("/", "÷")}` : example, 34, 5), 965, 202, equation ? 23 : 21, palette.navy),
-    text("path-label", sectionLabels[visualKind], 72, 342, 17, palette.purple),
+    text("example-copy", wrapText(equation ? `${example}\n${equation.replace("*", "×").replace("/", "÷")}` : example, 34, 4), 965, 202, equation ? 22 : 20, palette.navy),
+    text("path-label", sectionLabels[visualKind], 72, 352, 17, palette.purple),
   ];
 
   const nodes = arithmeticMatch
@@ -586,7 +586,7 @@ export function genericTutorScene(turn: TutorTurn, revision: number): Excalidraw
   const startX = 720 - totalWidth / 2;
   const positions = nodes.map((_, index) => ({
     x: startX + index * (nodeWidth + horizontalGap),
-    y: 385,
+    y: 395,
     width: nodeWidth,
     height: 170,
     row: 0,
@@ -616,7 +616,7 @@ export function genericTutorScene(turn: TutorTurn, revision: number): Excalidraw
         id: `connection-${index}-label`,
         type: "text",
         x: startPoint.x + deltaX / 2,
-        y: 360,
+        y: 370,
         text: connection.label,
         fontSize: 15,
         strokeColor: palette.purple,
@@ -672,9 +672,16 @@ export function genericTutorScene(turn: TutorTurn, revision: number): Excalidraw
       strokeWidth: 2,
       symbol: inferVisualSymbol(`${node.label} ${node.detail}`, node.symbol ?? "idea"),
     });
-    elements.push(text(`concept-${index}-label`, wrapText(node.label, Math.max(10, Math.floor((position.width - 155) / 12)), 2), position.x + 80, position.y + 28, 23, palette.navy));
+    // Reserve the right side of each card for its symbol. Four-card layouts use a
+    // smaller title face so meaningful terms such as "stomata" are not clipped.
+    const compactCard = columnCount === 4;
+    const labelLineLength = compactCard ? 15 : Math.max(10, Math.floor((position.width - 165) / 10));
+    const wrappedLabel = wrapText(node.label, labelLineLength, 3);
+    const labelLines = wrappedLabel.split("\n").length;
+    const labelFontSize = compactCard ? 17 : labelLines >= 3 ? 18 : labelLines === 2 ? 20 : 22;
+    elements.push(text(`concept-${index}-label`, wrappedLabel, position.x + 80, position.y + 28, labelFontSize, palette.navy));
     if (node.detail.trim().toLowerCase() !== node.label.trim().toLowerCase()) {
-      elements.push(text(`concept-${index}-detail`, wrapText(node.detail, Math.max(22, Math.floor(position.width / 10)), 3), position.x + 25, position.y + 88, 18, palette.ink));
+      elements.push(text(`concept-${index}-detail`, wrapText(node.detail, Math.max(22, Math.floor(position.width / 9)), 3), position.x + 25, position.y + 105, 17, palette.ink));
     }
   });
   if (turn.followUpQuestion) {

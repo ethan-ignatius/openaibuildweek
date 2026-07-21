@@ -224,6 +224,46 @@ describe("Teacher Brain API tutor provider", () => {
     expect(JSON.stringify(turn.visual)).not.toContain("doNotRun");
   });
 
+  it("prefers explicit numbered teaching stages over incidental custom-sketch labels", async () => {
+    const fetcher = vi.fn(async (input: string | URL | Request) => {
+      if (String(input).endsWith("/api/teacher/sessions")) {
+        return jsonResponse({ session_id: "photosynthesis-fixture", status: "active" });
+      }
+      return jsonResponse({
+        session_id: "photosynthesis-fixture",
+        turn_index: 1,
+        kind: "instruction",
+        student: null,
+        plan: {
+          board_actions: [
+            { type: "board.clear", region: "all" },
+            { type: "board.write_text", region: "top", text: "Photosynthesis", element_id: "title" },
+            { type: "board.render_custom", svg: "<svg><text>Roots</text><text>Water</text><text>Stomata</text><text>Chloroplasts</text></svg>", element_id: "leaf" },
+            { type: "board.write_text", region: "left", text: "1. Inputs\nWater and carbon dioxide enter", element_id: "inputs" },
+            { type: "board.write_text", region: "center", text: "2. Capture light\nChlorophyll captures energy", element_id: "light" },
+            { type: "board.write_text", region: "right", text: "3. Make glucose and oxygen\nAtoms are rearranged", element_id: "products" },
+            { type: "board.write_text", region: "bottom", text: "4. Use glucose\nEnergy, growth, cellulose, and storage", element_id: "uses" },
+          ],
+          narration_segments: [{ text: "Plants use light energy to rearrange water and carbon dioxide into glucose and oxygen.", language: "English" }],
+          check_for_understanding: "What supplies matter and what supplies energy?",
+          pedagogical_rationale: "Trace matter and energy separately.",
+          resume_guidance: "Continue with how glucose supports the plant.",
+        },
+        token_usage: { input: 30, output: 20, total: 50 },
+        latency_ms: 12,
+      });
+    });
+    const provider = new TeacherBrainTutorProvider({ fetcher: fetcher as typeof fetch });
+
+    const turn = await provider.beginLesson({ lessonTitle: "Photosynthesis" });
+
+    expect(turn.visual.nodes.map((node) => node.label)).toEqual([
+      "1. Inputs", "2. Capture light", "3. Make glucose and oxygen", "4. Use glucose",
+    ]);
+    expect(turn.visual.nodes[2].detail).toBe("Atoms are rearranged");
+    expect(turn.visual.nodes.map((node) => node.label)).not.toContain("Roots");
+  });
+
   it("opens and explicitly resumes a lesson through the teach endpoint", async () => {
     const requests: Array<{ url: string; body: Record<string, unknown> }> = [];
     let turnIndex = 0;

@@ -75,8 +75,8 @@ describe("bounded Visual Stage whiteboard tool", () => {
       model: "fixture",
     }, 1);
     const panel = scene.elements.find((element) => element.id === "big-idea-panel");
-    expect(panel).toMatchObject({ type: "rectangle", width: 830, height: 180, fillStyle: "solid" });
-    expect(scene.elements.find((element) => element.id === "example-panel")).toMatchObject({ type: "rectangle", width: 440 });
+    expect(panel).toMatchObject({ type: "rectangle", width: 830, height: 200, fillStyle: "solid" });
+    expect(scene.elements.find((element) => element.id === "example-panel")).toMatchObject({ type: "rectangle", width: 440, height: 200 });
     const concepts = scene.elements.filter((element) => /^concept-\d$/.test(element.id));
     expect(concepts).toHaveLength(3);
     expect(concepts.every((element) => element.type === "rectangle")).toBe(true);
@@ -88,6 +88,46 @@ describe("bounded Visual Stage whiteboard tool", () => {
     expect(scene.elements.find((element) => element.id === "example-copy")).toMatchObject({ type: "text" });
     expect(JSON.stringify(scene.elements.find((element) => element.id === "example-copy"))).toContain("2 + 24 = 26");
     expect(scene.elements.filter((element) => element.id.startsWith("concept-") && element.type === "rectangle").every((element) => "fillStyle" in element && element.fillStyle === "solid")).toBe(true);
+  });
+
+  it("keeps long elementary science copy inside its teaching cards", () => {
+    const scene = genericTutorScene({
+      disposition: "answer",
+      answer: "Photosynthesis lets a plant use sunlight, water, and carbon dioxide to make glucose and release oxygen.",
+      spokenAnswer: "Photosynthesis lets a plant use sunlight, water, and carbon dioxide to make glucose and release oxygen.",
+      visual: {
+        title: "How a plant obtains the inputs for photosynthesis",
+        kind: "sequence",
+        keyIdea: "Plants take in water through their roots and carbon dioxide through tiny openings in their leaves, then chlorophyll captures light energy to help make glucose.",
+        example: "Follow each ingredient from outside the plant into the leaf, where the materials connect and glucose is made.",
+        nodes: [
+          { label: "Sunlight energy", detail: "Chlorophyll captures light in the leaf" },
+          { label: "Carbon dioxide through stomata", detail: "Gas enters through tiny leaf openings" },
+          { label: "Water from the roots", detail: "Water travels upward through xylem" },
+          { label: "Glucose and oxygen", detail: "Sugar is made and oxygen is released" },
+        ],
+        connections: [{ from: 0, to: 1, label: "then" }, { from: 1, to: 2, label: "then" }, { from: 2, to: 3, label: "then" }],
+      },
+      followUpQuestion: "Which input enters through the roots, and which input enters through the leaves?",
+      provider: "fixture",
+      model: "fixture",
+    }, 3);
+    const textElement = (id: string) => scene.elements.find((element) => element.id === id && element.type === "text");
+    const renderedBottom = (id: string) => {
+      const element = textElement(id);
+      if (!element || element.type !== "text") throw new Error(`Missing text element ${id}`);
+      const lines = element.text.split("\n").length;
+      const size = element.fontSize ?? 28;
+      return element.y + size + Math.max(0, lines - 1) * size * 1.28;
+    };
+
+    expect(renderedBottom("big-idea-copy")).toBeLessThanOrEqual(326);
+    expect(renderedBottom("example-copy")).toBeLessThanOrEqual(326);
+    for (let index = 0; index < 4; index += 1) {
+      expect(renderedBottom(`concept-${index}-label`)).toBeLessThan(500);
+      expect(renderedBottom(`concept-${index}-detail`)).toBeLessThanOrEqual(565);
+    }
+    expect(renderedBottom("follow-up")).toBeLessThanOrEqual(745);
   });
 
   it("rejects duplicate IDs and out-of-bounds agent commands", () => {

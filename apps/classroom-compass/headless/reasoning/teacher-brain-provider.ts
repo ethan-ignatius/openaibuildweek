@@ -259,9 +259,11 @@ export class TeacherBrainTutorProvider implements TutorAnswerProvider {
       .filter((node): node is NonNullable<ReturnType<typeof actionSummary>> => node !== null)
       .filter((node) => normalizedWords(node.label) !== normalizedWords(visualTitle));
     const nodes = uniqueVisualNodes(
-      customLabels.length >= 2
-        ? customLabels.map(visualNodeForLabel)
-        : actionNodes,
+      actionNodes.length >= 3
+        ? actionNodes
+        : customLabels.length >= 2
+          ? customLabels.map(visualNodeForLabel)
+          : actionNodes,
     ).slice(0, 4);
     const visualKind = inferVisualKind(`${visualTitle} ${spokenSegments[0]?.text ?? narration}`);
     const connections = nodes.slice(1).map((_, index) => ({
@@ -450,7 +452,13 @@ function actionSummary(
   action: TeacherBrainBoardAction,
 ): TutorTurn["visual"]["nodes"][number] | null {
   if (action.type === "board.write_text") {
-    return visualNodeForLabel(action.text.slice(0, 80));
+    const [heading, ...detailLines] = action.text
+      .split(/\r?\n/)
+      .map((line) => line.replace(/\s+/g, " ").trim())
+      .filter(Boolean);
+    const node = visualNodeForLabel((heading || action.text).slice(0, 80));
+    const detail = detailLines.join(" · ").slice(0, 180);
+    return detail ? { ...node, detail } : node;
   }
   if (action.type === "board.write_math") {
     return { label: plainMath(action.latex).slice(0, 80), detail: "See how the quantities fit together.", symbol: "number" };

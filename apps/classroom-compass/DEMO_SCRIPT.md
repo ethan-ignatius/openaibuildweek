@@ -65,3 +65,15 @@ Allow the macOS Microphone and Speech Recognition permissions. Ask any education
 The default board prioritizes presentation speed and clarity. Open `/board/excalidraw` instead when you want to add freehand marks with a pen, touch, or mouse.
 
 The live path is not a hard-coded question matcher: open-ended questions use the local Ollama model. Recognized decimal comparisons use a general reviewed computation tool over the spoken values, keeping the showcase arithmetic reliable without storing fixed question-and-answer pairs.
+
+## Photosynthesis bilingual interruption demo
+
+The local `.env` demo preset starts an English grades 4–8 photosynthesis lesson automatically. The reviewed lesson context requires the explanation to connect water from roots, carbon dioxide through stomata, light captured by chlorophyll, glucose production, and oxygen release. It also supplies the word equation and balanced chemical equation so the model does not need to reconstruct core facts from the spoken prompt.
+
+1. Start `npm run room:preview` and open `http://localhost:3000/board`.
+2. Let the opening explanation establish the leaf-centered process. The current visual stays on screen while the next model turn is prepared.
+3. From camera-left, have Ethan raise an open palm and ask an English question such as: “If plants make glucose, why do they still need water?” Confirm that the answer and public diagram remain in English.
+4. After the lesson resumes, have Emanuel raise an open palm from camera-right and ask: “¿Cómo entra el dióxido de carbono en la hoja?” Confirm that Sarah answers primarily in Spanish, the diagram labels are Spanish, and a brief English recap follows.
+5. Confirm that the system reconnects in English to the exact photosynthesis step that was paused rather than restarting the lesson.
+
+The configured OpenAI reasoning effort is `low`. A student interruption currently performs a learner-memory model call followed by the teaching-plan model call, so the observed wait can be longer than reasoning effort alone suggests.
