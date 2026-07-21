@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections import Counter
 from collections.abc import Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -10,12 +11,14 @@ import pandas as pd
 from pydantic import BaseModel, ConfigDict, Field
 
 from packages.harness.config import HarnessConfig, MemoryMode
-from packages.harness.journal import JournalWriter
+from packages.harness.journal import JournalWriter, sum_token_usage
 from packages.harness.learner_memory import LearnerMemory
 from packages.harness.model_client import (
     StructuredModelClient,
     TokenUsage,
 )
+
+_EVAL_NOTE_MAX_LENGTH = 6000
 
 
 class NextItemPrediction(BaseModel):
@@ -42,7 +45,16 @@ class AssistmentsPredictor(Protocol):
         observed_history: Sequence[Mapping[str, object]],
         next_skill_id: str,
         next_skill_name: str,
+        memory_already_updated: bool = False,
     ) -> PredictionOutcome: ...
+
+
+@dataclass(frozen=True)
+class ResumeProgress:
+    predictions: pd.DataFrame
+    completed_by_student: Mapping[str, int]
+    memory_prepared_for: frozenset[str]
+    usage: TokenUsage
 
 
 class OpenAIAssistmentsPredictor:
@@ -67,6 +79,7 @@ class OpenAIAssistmentsPredictor:
         observed_history: Sequence[Mapping[str, object]],
         next_skill_id: str,
         next_skill_name: str,
+        memory_already_updated: bool = False,
     ) -> PredictionOutcome:
         metadata = {"eval": "assistments", "student": student}
         total_usage = TokenUsage()
@@ -83,12 +96,18 @@ class OpenAIAssistmentsPredictor:
                 },
             )
 
-        if self.config.memory_mode == MemoryMode.NOTES:
+        if (
+            self.config.memory_mode == MemoryMode.NOTES
+            and not memory_already_updated
+        ):
             current_note = self.memory.read(student)
             tool_run = self.client.execute_required_tool(
                 system_prompt=_memory_system_prompt(student),
                 user_prompt=_memory_update_prompt(current_note, new_chunk),
-                tool=self.memory.write_tool(expected_student=student),
+                tool=self.memory.write_tool(
+                    expected_student=student,
+                    maximum_markdown_length=_EVAL_NOTE_MAX_LENGTH,
+                ),
                 metadata=metadata,
             )
             total_usage += tool_run.usage
@@ -151,6 +170,8 @@ def run_prediction_loop(
     max_students: int | None = None,
     max_predictions: int | None = None,
     max_workers: int = 1,
+    completed_predictions: Mapping[str, int] | None = None,
+    memory_prepared_for: frozenset[str] = frozenset(),
 ) -> tuple[pd.DataFrame, TokenUsage]:
     if chunk_size < 1:
         raise ValueError("chunk_size must be positive")
@@ -162,7 +183,8 @@ def run_prediction_loop(
     if max_students is not None:
         selected_students = selected_students[:max_students]
 
-    tasks: list[tuple[str, list[dict[str, object]], int | None]] = []
+    completed_predictions = completed_predictions or {}
+    tasks: list[tuple[str, list[dict[str, object]], int, int]] = []
     remaining_predictions = max_predictions
     for student in selected_students:
         student_rows = interactions[interactions["student_id"] == student].sort_values(
@@ -170,23 +192,32 @@ def run_prediction_loop(
         )
         observations = student_rows.to_dict(orient="records")
         available = max(0, (len(observations) - 1) // chunk_size)
-        limit = None
+        selected_total = available
         if remaining_predictions is not None:
-            limit = min(available, remaining_predictions)
-            remaining_predictions -= limit
-        if available and (limit is None or limit > 0):
-            tasks.append((student, observations, limit))
+            selected_total = min(available, remaining_predictions)
+            remaining_predictions -= selected_total
+        completed = int(completed_predictions.get(student, 0))
+        if completed > selected_total:
+            raise ValueError(
+                f"Resume journal has too many predictions for student {student}"
+            )
+        pending = selected_total - completed
+        if pending > 0:
+            tasks.append((student, observations, completed, pending))
         if remaining_predictions == 0:
             break
 
     def predict_student(
-        task: tuple[str, list[dict[str, object]], int | None],
+        task: tuple[str, list[dict[str, object]], int, int],
     ) -> tuple[list[dict[str, object]], TokenUsage]:
-        student, observations, prediction_limit = task
+        student, observations, completed, pending = task
         student_records: list[dict[str, object]] = []
         student_usage = TokenUsage()
-        for boundary in range(chunk_size, len(observations), chunk_size):
-            if prediction_limit is not None and len(student_records) >= prediction_limit:
+        boundaries = range(chunk_size, len(observations), chunk_size)
+        for prediction_index, boundary in enumerate(boundaries):
+            if prediction_index < completed:
+                continue
+            if len(student_records) >= pending:
                 break
             new_chunk = observations[boundary - chunk_size : boundary]
             history = observations[:boundary]
@@ -197,6 +228,9 @@ def run_prediction_loop(
                 observed_history=history,
                 next_skill_id=str(next_item["skill_id"]),
                 next_skill_name=str(next_item["skill_name"]),
+                memory_already_updated=(
+                    student in memory_prepared_for and prediction_index == completed
+                ),
             )
             student_usage += outcome.usage
             student_records.append(
@@ -231,6 +265,87 @@ def run_prediction_loop(
         records.extend(student_records)
         total_usage += student_usage
     return pd.DataFrame.from_records(records), total_usage
+
+
+def recover_resume_progress(
+    events: Sequence[Mapping[str, object]],
+    interactions: pd.DataFrame,
+    selected_students: Sequence[str],
+    *,
+    chunk_size: int,
+) -> ResumeProgress:
+    """Recover committed prediction boundaries and note state from a journal."""
+
+    selected = set(selected_students)
+    completed: Counter[str] = Counter()
+    memory_updates: Counter[str] = Counter()
+    records: list[dict[str, object]] = []
+
+    rows_by_student = {
+        student: interactions[interactions["student_id"] == student]
+        .sort_values("sequence_index", kind="stable")
+        .to_dict(orient="records")
+        for student in selected_students
+    }
+    for event in events:
+        event_type = event.get("event_type")
+        payload = event.get("payload")
+        if not isinstance(payload, Mapping):
+            continue
+        if event_type == "tool.result":
+            result = payload.get("result")
+            if isinstance(result, Mapping) and result.get("ok") is True:
+                student = str(result.get("student", ""))
+                if student in selected:
+                    memory_updates[student] += 1
+            continue
+        if event_type != "eval.prediction" or payload.get("eval") != "assistments":
+            continue
+        student = str(payload.get("student", ""))
+        if student not in selected:
+            continue
+        prediction_index = completed[student]
+        boundary = (prediction_index + 1) * chunk_size
+        observations = rows_by_student[student]
+        if boundary >= len(observations):
+            raise ValueError(f"Resume journal exceeds available rows for {student}")
+        next_item = observations[boundary]
+        records.append(
+            {
+                "student_id": student,
+                "sequence_index": int(next_item["sequence_index"]),
+                "skill_id": str(next_item["skill_id"]),
+                "correct": int(next_item["correct"]),
+                "probability": float(payload["probability_correct"]),
+                "rationale": "Recovered from the replay journal.",
+                "latency_ms": float(event.get("latency_ms", 0.0) or 0.0),
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "total_tokens": 0,
+                "model": "agent",
+            }
+        )
+        completed[student] += 1
+
+    prepared: set[str] = set()
+    for student in selected_students:
+        update_count = memory_updates[student]
+        prediction_count = completed[student]
+        if update_count == prediction_count + 1:
+            prepared.add(student)
+        elif update_count != prediction_count:
+            raise ValueError(
+                f"Journal has inconsistent learner memory state for {student}: "
+                f"{update_count} updates and {prediction_count} predictions"
+            )
+
+    token_usage = sum_token_usage(events)
+    return ResumeProgress(
+        predictions=pd.DataFrame.from_records(records),
+        completed_by_student=dict(completed),
+        memory_prepared_for=frozenset(prepared),
+        usage=TokenUsage(**token_usage),
+    )
 
 
 def prediction_targets(
@@ -271,7 +386,8 @@ def _memory_system_prompt(student: str) -> str:
         f"must call learner_write exactly once for pseudonym {student}. Preserve these "
         "Markdown sections exactly: Mastery estimates, Observed misconceptions, Language, "
         "Participation notes, Strategies that worked. Do not mention or anticipate any "
-        "future item."
+        f"future item. Keep the complete replacement under {_EVAL_NOTE_MAX_LENGTH} "
+        "characters by aggregating repeated evidence and removing stale detail."
     )
 
 

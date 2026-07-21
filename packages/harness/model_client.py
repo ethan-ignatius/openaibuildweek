@@ -329,10 +329,16 @@ class OpenAIModelClient:
     ) -> tuple[Any, float]:
         deadline = time.monotonic() + self.config.model_timeout_seconds
         last_error: Exception | None = None
+        attempts_made = 0
         for attempt in range(1, self.config.model_max_attempts + 1):
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 break
+            attempts_left = self.config.model_max_attempts - attempt + 1
+            # Give the first attempt enough time for long structured outputs while
+            # reserving a bounded retry window for transient connection failures.
+            attempt_timeout = remaining / min(attempts_left, 2)
+            attempts_made = attempt
             if self.journal:
                 self.journal.append(
                     event_type,
@@ -340,7 +346,7 @@ class OpenAIModelClient:
                 )
             started = time.perf_counter()
             try:
-                response = call(self.client.with_options(timeout=remaining))
+                response = call(self.client.with_options(timeout=attempt_timeout))
                 return response, (time.perf_counter() - started) * 1000
             except self._RETRYABLE as error:
                 last_error = error
@@ -358,12 +364,13 @@ class OpenAIModelClient:
                     )
                 if attempt == self.config.model_max_attempts:
                     break
+                remaining = deadline - time.monotonic()
                 delay = min(0.5 * 2 ** (attempt - 1), max(0.0, remaining - 0.1))
                 if delay > 0:
                     time.sleep(delay)
 
         raise ModelClientError(
-            f"Model call failed after {self.config.model_max_attempts} attempts"
+            f"Model call failed after {attempts_made} attempt(s)"
         ) from last_error
 
     def _record_response(self, response: Any, latency_ms: float, usage: TokenUsage) -> None:

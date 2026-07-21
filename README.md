@@ -130,9 +130,18 @@ M0 is complete: a curl-injected, schema-validated action renders on the live boa
 over FastAPI and WebSocket, including math and highlighting.
 
 M1's harness, ASSISTments, NCTE Tier 1, reporting, and replay implementations pass
-the local fixture suite. M1 is **not accepted yet** because the external dataset files
-and `OPENAI_API_KEY` are not present in this checkout, so no real local agent numbers
-have been produced. Checked-in reports state `UNAVAILABLE` and show zero local tokens.
+the local fixture suite. The five-student ASSISTments notes condition has completed
+159 held-out predictions against the external dataset; its checked-in report contains
+the agent and pyBKT results with full token accounting. M1 remains partially accepted
+until a complete NCTE run and the controlled memory/pedagogy ablations finish.
+
+The M2 classroom-control core is implemented: a learner-aware teaching session can
+produce validated smartboard actions and narration, persist student notes, handle a
+named interruption in the student's declared language, clear and rebuild the board,
+and return explicit lesson-resume guidance. See
+[`docs/classroom-agent.md`](docs/classroom-agent.md) for the API and the hand-raise
+integration contract. Voice playback, PDF ingestion, and live perception remain
+separate milestone work.
 
 ## M0 Quick Start
 

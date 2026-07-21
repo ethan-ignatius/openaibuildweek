@@ -23,6 +23,8 @@
         "eval.prediction",
         "eval.metric",
         "session.started",
+        "session.resumed",
+        "session.interrupted",
         "session.ended"
       ]
     },

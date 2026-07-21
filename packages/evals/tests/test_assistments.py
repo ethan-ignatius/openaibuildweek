@@ -11,6 +11,7 @@ from packages.evals.assistments.agent import (
     OpenAIAssistmentsPredictor,
     PredictionOutcome,
     prediction_targets,
+    recover_resume_progress,
     run_prediction_loop,
 )
 from packages.evals.assistments.baseline import fit_predict_pybkt
@@ -224,6 +225,85 @@ def test_prediction_loop_uses_chronological_chunk_boundaries() -> None:
         ("assist_second", 10),
     ]
     assert parallel_usage == TokenUsage(input=9, output=6, total=15)
+
+    resumed_predictions, resumed_usage = run_prediction_loop(
+        interactions,
+        ["assist_fixture"],
+        FixedPredictor(),
+        chunk_size=10,
+        completed_predictions={"assist_fixture": 1},
+        memory_prepared_for=frozenset({"assist_fixture"}),
+    )
+    assert resumed_predictions["sequence_index"].tolist() == [20]
+    assert resumed_usage == TokenUsage(input=3, output=2, total=5)
+
+
+def test_resume_progress_recovers_predictions_memory_and_usage() -> None:
+    interactions = pd.DataFrame(
+        [
+            {
+                "student_id": "assist_fixture",
+                "sequence_index": index,
+                "skill_id": "s1",
+                "skill_name": "fractions",
+                "correct": index % 2,
+            }
+            for index in range(35)
+        ]
+    )
+    events: list[dict[str, object]] = []
+    for probability in (0.4, 0.6):
+        events.extend(
+            [
+                {
+                    "event_type": "model.response",
+                    "payload": {},
+                    "token_usage": {"input": 3, "output": 2, "total": 5},
+                },
+                {
+                    "event_type": "tool.result",
+                    "payload": {
+                        "result": {
+                            "ok": True,
+                            "student": "assist_fixture",
+                        }
+                    },
+                },
+                {
+                    "event_type": "eval.prediction",
+                    "payload": {
+                        "eval": "assistments",
+                        "student": "assist_fixture",
+                        "probability_correct": probability,
+                    },
+                    "latency_ms": 12.0,
+                },
+            ]
+        )
+    events.append(
+        {
+            "event_type": "tool.result",
+            "payload": {
+                "result": {
+                    "ok": True,
+                    "student": "assist_fixture",
+                }
+            },
+        }
+    )
+
+    progress = recover_resume_progress(
+        events,
+        interactions,
+        ["assist_fixture"],
+        chunk_size=10,
+    )
+
+    assert progress.predictions["sequence_index"].tolist() == [10, 20]
+    assert progress.predictions["probability"].tolist() == [0.4, 0.6]
+    assert progress.completed_by_student == {"assist_fixture": 2}
+    assert progress.memory_prepared_for == frozenset({"assist_fixture"})
+    assert progress.usage == TokenUsage(input=6, output=4, total=10)
 
 
 def test_full_context_is_raw_model_comparator_without_memory_write(

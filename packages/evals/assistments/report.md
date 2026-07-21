@@ -1,23 +1,23 @@
 # ASSISTments Long-Horizon Calibration
 
-**Status: PARTIAL**
+**Status: COMPLETE**
 
-The external dataset and pyBKT baseline are complete. A bounded live API smoke passed;
-the five-student Teacher Brain condition is still pending, so M1 is not complete.
+Completed 159 held-out next-item predictions using external ASSISTments rows.
 
 ## Results
 
 | System | Predictions | AUC | Brier | F1 @ 0.5 |
 | --- | ---: | ---: | ---: | ---: |
 | pyBKT | 159 | 0.7910 | 0.1911 | 0.7834 |
+| Teacher Brain | 159 | 0.7417 | 0.1972 | 0.7633 |
 
 ## Run Accounting
 
 - Model: `gpt-5.6`
-- Input tokens: **0**
-- Output tokens: **0**
-- Total tokens processed: **0**
-- Estimated API cost: **$0.0000**
+- Input tokens: **568,144**
+- Output tokens: **256,185**
+- Total tokens processed: **824,329**
+- Estimated API cost: **$10.5263**
 - pyBKT non-finite fallbacks: **0**
 - pyBKT random initializations: **1**
 - Eligible students: **815**
@@ -31,7 +31,16 @@ The loader uses the corrected/deduplicated ASSISTments 2009-10 skill-builder rel
 
 After each chronological chunk, the notes condition updates a Markdown learner model without seeing the next item. The probability request receives only that note and the next skill tag. Full-context and no-memory conditions use the same prediction points.
 
+The notes condition enforces a 6,000-character replacement-note limit. The model must aggregate repeated evidence so persistent memory remains human-readable and bounded.
+
 The pyBKT adapter preserves chronological student-skill sequences and activates the package's serial E-step through a documented pyBKT 1.4.x import compatibility path. Non-finite outputs are counted and reported; they are never silently dropped.
+
+## M1 Protocol Note
+
+This engineering run introduced the bounded-note policy after prediction 69 in response
+to observed note growth. The run proves the five-student pipeline, retry, journal, and
+resume paths end to end, but its metrics are preliminary. The controlled headline run
+must restart all memory conditions from empty state under one fixed protocol.
 
 ## Contamination Note
 

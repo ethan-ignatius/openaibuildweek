@@ -36,7 +36,7 @@ Run the five-student M1 subset:
   --max-students 5 \
   --memory-mode notes \
   --pybkt-fits 1 \
-  --workers 5
+  --workers 2
 ```
 
 The hackathon M1 path uses one deterministic pyBKT initialization. Use
@@ -92,11 +92,28 @@ Run the ten-transcript M1 subset:
 .venv/bin/python scripts/run_ncte_eval.py \
   --max-transcripts 10 \
   --condition full \
-  --workers 5
+  --workers 2
 ```
 
 `--workers` parallelizes independent students, exchanges, or transcripts. Outcomes
 within a single learner remain chronological, and output rows retain source order.
+
+ASSISTments note files are capped at 6,000 characters. If a long run is interrupted,
+resume the same journal and learner state without repeating committed boundaries:
+
+```bash
+.venv/bin/python scripts/run_assistments_eval.py \
+  --max-students 5 \
+  --memory-mode notes \
+  --workers 2 \
+  --timeout-seconds 180 \
+  --resume-session assistments-YYYYMMDDTHHMMSSZ
+```
+
+Resume validates tool-result and prediction counts per learner, preserves a note update
+that completed before a failed probability call, continues journal sequence numbers,
+and includes prior successful responses in final token accounting. The pyBKT baseline
+is cached only when its dataset hash, split, prediction count, seed, and fit count match.
 
 Turn-level F1 is measured against majority-rater `high_uptake` and
 `focusing_question` labels. Observation-level Spearman correlation is measured after

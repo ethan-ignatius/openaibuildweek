@@ -56,12 +56,20 @@ def redact(value: Any) -> Any:
 class JournalWriter:
     """Append-only, schema-validated JSONL event writer."""
 
-    def __init__(self, path: Path, session_id: str) -> None:
+    def __init__(self, path: Path, session_id: str, *, resume: bool = False) -> None:
         self.path = path
         self.session_id = session_id
-        self._sequence = 0
         self._lock = threading.Lock()
         path.parent.mkdir(parents=True, exist_ok=True)
+        if resume:
+            if not path.is_file():
+                raise FileNotFoundError(f"Cannot resume missing journal: {path}")
+            events = JournalReader(path).read_all()
+            if events and events[0]["session_id"] != session_id:
+                raise ValueError("Resume session ID does not match the journal")
+            self._sequence = events[-1]["sequence"] + 1 if events else 0
+        else:
+            self._sequence = 0
 
     def append(
         self,

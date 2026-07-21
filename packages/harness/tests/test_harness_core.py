@@ -6,7 +6,9 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+import httpx
 import pytest
+from openai import APIConnectionError
 from pydantic import BaseModel, ConfigDict
 
 from packages.harness.config import HarnessConfig, MemoryMode
@@ -72,6 +74,29 @@ class FakeOpenAI:
         return self
 
 
+class FlakyResponses(FakeResponses):
+    def __init__(self) -> None:
+        self.parse_calls = 0
+
+    def parse(self, **kwargs: object) -> FakeAPIResponse:
+        self.parse_calls += 1
+        if self.parse_calls < 3:
+            raise APIConnectionError(
+                request=httpx.Request("POST", "https://api.openai.com/v1/responses")
+            )
+        return super().parse(**kwargs)
+
+
+class FlakyOpenAI(FakeOpenAI):
+    def __init__(self) -> None:
+        self.responses = FlakyResponses()
+        self.timeouts: list[float] = []
+
+    def with_options(self, **kwargs: object) -> "FlakyOpenAI":
+        self.timeouts.append(float(kwargs["timeout"]))
+        return self
+
+
 def test_shared_registry_resolves_lecture_plan_board_action_reference() -> None:
     plan = {
         "id": "lesson-1",
@@ -120,6 +145,11 @@ def test_journal_redacts_credentials_validates_and_counts_model_tokens(tmp_path:
     assert [event["sequence"] for event in events] == [0, 1, 2]
     assert sum_token_usage(events) == {"input": 8, "output": 3, "total": 11}
 
+    resumed = JournalWriter(path, "fixture-session", resume=True)
+    resumed.append("session.resumed", {"prior_events": 3})
+    resumed_events = JournalReader(path).read_all()
+    assert resumed_events[-1]["sequence"] == 3
+
 
 def test_learner_memory_enforces_pseudonym_and_required_sections(tmp_path: Path) -> None:
     memory = LearnerMemory(tmp_path)
@@ -132,6 +162,13 @@ def test_learner_memory_enforces_pseudonym_and_required_sections(tmp_path: Path)
         memory.read("../private")
     with pytest.raises(LearnerMemoryError, match="missing sections"):
         memory.write("Student_A", "# Learner: Student_A\n")
+
+    limited_tool = memory.write_tool(
+        expected_student="Student_A",
+        maximum_markdown_length=10,
+    )
+    with pytest.raises(LearnerMemoryError, match="maximum length"):
+        limited_tool.handler({"student": "Student_A", "markdown": note})
 
 
 def test_harness_ablation_config_rejects_notes_without_tools() -> None:
@@ -176,6 +213,29 @@ def test_model_client_executes_required_tool_then_parses_structured_output(
     events = JournalReader(journal_path).read_all()
     assert [event["event_type"] for event in events].count("model.request") == 2
     assert [event["event_type"] for event in events].count("model.response") == 2
+
+
+def test_model_client_reserves_timeout_budget_for_retries(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("packages.harness.model_client.time.sleep", lambda _: None)
+    api = FlakyOpenAI()
+    client = OpenAIModelClient(
+        HarnessConfig(model_timeout_seconds=9, model_max_attempts=3),
+        client=api,  # type: ignore[arg-type]
+    )
+
+    result = client.generate_structured(
+        system_prompt="Return the fixture.",
+        user_prompt="Retry transient connection failures.",
+        response_model=FixtureResponse,
+    )
+
+    assert result.parsed == FixtureResponse(value=11)
+    assert api.responses.parse_calls == 3
+    assert len(api.timeouts) == 3
+    assert api.timeouts[0] == pytest.approx(4.5, rel=0.05)
+    assert all(0 < timeout <= 9 for timeout in api.timeouts)
 
 
 def test_replay_validates_order_and_dispatches_board_actions(tmp_path: Path) -> None:

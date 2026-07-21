@@ -1,15 +1,15 @@
 # NCTE Transcript Evaluation
 
-**Status: UNAVAILABLE**
+**Status: COMPLETE**
 
-Missing authorized NCTE input: data/ncte/paired_annotations.csv or data/ncte/paired_annotations_release.csv. Each user must request transcript access at https://forms.gle/1yWybvsjciqL8Y9p8.
+Scored 10 authorized NCTE transcripts and classified 8 externally annotated exchanges.
 
 ## Turn-Level Discourse Moves
 
 | Label | Predictions | Teacher Brain F1 | Published RoBERTa F1 |
 | --- | ---: | ---: | ---: |
-| `high_uptake` | 0 | N/A | 0.688 |
-| `focusing_question` | 0 | N/A | 0.501 |
+| `high_uptake` | 8 | 0.7273 | 0.688 |
+| `focusing_question` | 8 | 0.5000 | 0.501 |
 
 The RoBERTa references are the five-fold cross-validation values reported by the NCTE dataset authors. They are contextual bars, not results produced by this run.
 
@@ -17,13 +17,13 @@ The RoBERTa references are the five-fold cross-validation values reported by the
 
 | Dimension | Teacher Brain N | Teacher Brain Spearman | Published ChatGPT N | Published ChatGPT Spearman |
 | --- | ---: | ---: | ---: | ---: |
-| `CLPC` | 0 | N/A | 100 | 0.0036 |
-| `CLBM` | 0 | N/A | 100 | 0.3546 |
-| `CLINSTD` | 0 | N/A | 100 | -0.0090 |
-| `EXPL` | 0 | N/A | 203 | 0.0209 |
-| `REMED` | 0 | N/A | 203 | 0.0479 |
-| `LANGIMP` | 0 | N/A | 203 | -0.0010 |
-| `SMQR` | 0 | N/A | 203 | 0.1741 |
+| `CLPC` | 10 | -0.2638 | 100 | 0.0036 |
+| `CLBM` | 10 | 0.3735 | 100 | 0.3546 |
+| `CLINSTD` | 10 | -0.3241 | 100 | -0.0090 |
+| `EXPL` | 10 | 0.5222 | 203 | 0.0209 |
+| `REMED` | 10 | 0.5254 | 203 | 0.0479 |
+| `LANGIMP` | 10 | 0.2350 | 203 | -0.0010 |
+| `SMQR` | 10 | 0.6319 | 203 | 0.1741 |
 
 The published ChatGPT references are recomputed from the authors' released GPT-3.5 direct-assessment outputs after applying their non-null prompt filter. They are not rerun or counted in this run's token accounting.
 
@@ -31,10 +31,10 @@ The published ChatGPT references are recomputed from the authors' released GPT-3
 
 - Condition: `full`
 - Model: `gpt-5.6`
-- Input tokens: **0**
-- Output tokens: **0**
-- Total tokens processed: **0**
-- Estimated API cost: **$0.0000**
+- Input tokens: **82,457**
+- Output tokens: **8,099**
+- Total tokens processed: **90,556**
+- Estimated API cost: **$0.6553**
 
 ## Method
 

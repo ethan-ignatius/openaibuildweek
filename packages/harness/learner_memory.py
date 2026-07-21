@@ -61,14 +61,27 @@ class LearnerMemory:
         os.replace(temporary_path, path)
         return path
 
-    def write_tool(self, expected_student: str | None = None) -> ToolDefinition:
+    def write_tool(
+        self,
+        expected_student: str | None = None,
+        *,
+        maximum_markdown_length: int = 100000,
+    ) -> ToolDefinition:
+        if maximum_markdown_length < 1:
+            raise ValueError("maximum_markdown_length must be positive")
+
         def handler(arguments: dict[str, Any]) -> dict[str, Any]:
             student = str(arguments["student"])
+            markdown = str(arguments["markdown"])
             if expected_student is not None and student != expected_student:
                 raise LearnerMemoryError(
                     f"Tool may only update learner {expected_student}, not {student}"
                 )
-            path = self.write(student, str(arguments["markdown"]))
+            if len(markdown) > maximum_markdown_length:
+                raise LearnerMemoryError(
+                    "Learner note exceeds the configured maximum length"
+                )
+            path = self.write(student, markdown)
             return {"ok": True, "student": student, "path": str(path)}
 
         return ToolDefinition(
@@ -89,7 +102,7 @@ class LearnerMemory:
                     "markdown": {
                         "type": "string",
                         "minLength": 1,
-                        "maxLength": 100000,
+                        "maxLength": maximum_markdown_length,
                     },
                 },
             },
