@@ -42,6 +42,7 @@ export function selectWhisperCaptureDevice(devices: WhisperCaptureDevice[], requ
 }
 
 async function resolveCaptureDeviceByName(executable: string, model: string, requestedName: string) {
+  const timeoutMs = Number(process.env.CC_WHISPER_DEVICE_TIMEOUT_MS ?? 15_000);
   return new Promise<WhisperCaptureDevice>((resolve, reject) => {
     const devices: WhisperCaptureDevice[] = [];
     const probe = spawn(executable, [
@@ -64,22 +65,32 @@ async function resolveCaptureDeviceByName(executable: string, model: string, req
     };
     const inspect = (line: string) => {
       const device = parseWhisperCaptureDevice(line);
-      if (!device) return;
-      devices.push(device);
-      const selected = selectWhisperCaptureDevice(devices, requestedName);
-      if (selected) finish(undefined, selected);
+      if (device) {
+        devices.push(device);
+        return;
+      }
+      // whisper-stream prints this only after the complete device list. Waiting
+      // for the boundary preserves the teacher's ordered fallback preference.
+      if (/attempt to open capture device/i.test(line)) {
+        const selected = selectWhisperCaptureDevice(devices, requestedName);
+        if (selected) finish(undefined, selected);
+      }
     };
     createInterface({ input: probe.stdout, crlfDelay: Infinity }).on("line", inspect);
     createInterface({ input: probe.stderr, crlfDelay: Infinity }).on("line", inspect);
     probe.once("error", (error) => finish(new Error(`Unable to inspect microphones: ${error.message}`)));
     probe.once("close", () => {
+      const selected = selectWhisperCaptureDevice(devices, requestedName);
+      if (selected) return finish(undefined, selected);
       const available = devices.map((device) => device.name).join(", ") || "none reported";
       finish(new Error(`None of the requested microphones (${requestedName.replaceAll("|", ", ")}) were found. Available devices: ${available}.`));
     });
     const timer = setTimeout(() => {
+      const selected = selectWhisperCaptureDevice(devices, requestedName);
+      if (selected) return finish(undefined, selected);
       const available = devices.map((device) => device.name).join(", ") || "none reported";
       finish(new Error(`Timed out finding requested microphones (${requestedName.replaceAll("|", ", ")}). Available devices: ${available}.`));
-    }, 4_000);
+    }, timeoutMs);
   });
 }
 

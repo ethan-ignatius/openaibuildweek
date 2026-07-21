@@ -46,6 +46,7 @@ export class JsonLineSensorAdapter implements SensorAdapter {
     await new Promise<void>((resolve) => {
       const pendingLines = new Set<Promise<void>>();
       let finished = false;
+      let failureReported = false;
       const child = spawn(this.command!.executable, this.command!.args ?? [], { stdio: ["ignore", "pipe", "pipe"] });
       this.child = child;
       child.stderr?.on("data", (chunk: Buffer) => process.stderr.write(`[${this.id}] ${chunk.toString()}`));
@@ -61,9 +62,40 @@ export class JsonLineSensorAdapter implements SensorAdapter {
         if (this.status !== "paused" && this.status !== "stopped") this.status = "unavailable";
         resolve();
       };
-      child.once("error", () => void finish());
-      child.once("close", () => void finish());
+      const fail = async (detail: string) => {
+        if (failureReported) return;
+        failureReported = true;
+        try {
+          await this.reportUnavailable(detail);
+        } finally {
+          await finish();
+        }
+      };
+      child.once("error", (error) => {
+        void fail(`Unable to start ${this.id}: ${error.message}`);
+      });
+      child.once("close", (code, closeSignal) => {
+        if (this.status === "running" && code !== 0) {
+          const reason = closeSignal ? `signal ${closeSignal}` : `exit code ${code ?? "unknown"}`;
+          void fail(`${this.id} stopped unexpectedly with ${reason}.`);
+          return;
+        }
+        void finish();
+      });
       signal.addEventListener("abort", () => this.child?.kill("SIGTERM"), { once: true });
+    });
+  }
+
+  private async reportUnavailable(detail: string) {
+    if (!this.emit || this.status !== "running") return;
+    await this.emit({
+      id: crypto.randomUUID(),
+      sessionId: this.sessionId,
+      kind: "sensor_unavailable",
+      source: "live",
+      occurredAt: new Date().toISOString(),
+      payload: { detail },
+      provenance: { adapter: this.id, version: "1.0.0" },
     });
   }
 
