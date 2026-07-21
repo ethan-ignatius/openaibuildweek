@@ -6,7 +6,7 @@ import {
   Lightbulb, Map, MessageCircle, PawPrint, Plus, Scale, Shapes, Sun, Users,
   type LucideIcon,
 } from "lucide-react";
-import type { BoardElement, ExcalidrawScene } from "../../headless/whiteboard/excalidraw-tool";
+import type { BoardElement, VisualStageScene } from "../../headless/whiteboard/excalidraw-tool";
 
 const controlUrl = process.env.NEXT_PUBLIC_CC_CONTROL_URL ?? "http://127.0.0.1:4317";
 const stageWidth = 1440;
@@ -82,7 +82,7 @@ function ShapeLabel({ element }: { element: ShapeElement }) {
 function ShapeSymbol({ element }: { element: ShapeElement }) {
   if (!element.symbol) return null;
   const Icon = symbolIcons[element.symbol];
-  const size = Math.min(24, element.width * 0.55, element.height * 0.55);
+  const size = Math.min(40, element.width * 0.72, element.height * 0.72);
   return (
     <foreignObject x={element.x} y={element.y} width={element.width} height={element.height} pointerEvents="none">
       <span className="visual-stage-symbol" style={{ color: element.strokeColor ?? "#1d2b53" }} aria-hidden="true">
@@ -103,7 +103,15 @@ function SvgShape({ element, index }: { element: ShapeElement; index: number }) 
       ? "url(#stage-hachure)"
       : element.fillStyle === "cross-hatch"
         ? "url(#stage-cross-hatch)"
-        : element.backgroundColor ?? "#fffdf7",
+        : element.backgroundColor === "#e8f1ff"
+          ? "url(#stage-card-blue)"
+          : element.backgroundColor === "#efe9ff"
+            ? "url(#stage-card-purple)"
+            : element.backgroundColor === "#ffe9e4"
+              ? "url(#stage-card-coral)"
+              : element.backgroundColor === "#def6f2"
+                ? "url(#stage-card-teal)"
+                : element.backgroundColor ?? "#fffdf7",
     style: delayedStyle(index),
   };
   let shape: ReactNode;
@@ -136,7 +144,7 @@ function SvgLine({ element, index }: { element: Extract<BoardElement, { type: "l
   );
 }
 
-export function VisualScene({ scene }: { scene: ExcalidrawScene }) {
+export function VisualScene({ scene }: { scene: VisualStageScene }) {
   const description = useMemo(() => scene.elements
     .filter((element): element is Extract<BoardElement, { type: "text" }> => element.type === "text")
     .map((element) => element.text.replace(/\n/g, " "))
@@ -151,12 +159,18 @@ export function VisualScene({ scene }: { scene: ExcalidrawScene }) {
         <pattern id="stage-dots" width="72" height="72" patternUnits="userSpaceOnUse"><circle cx="8" cy="9" r="2" fill="#2f5fb3" opacity=".08" /><path d="M54 55h10M59 50v10" stroke="#6f4cc3" strokeWidth="1.5" opacity=".06" /></pattern>
         <pattern id="stage-hachure" width="10" height="10" patternUnits="userSpaceOnUse" patternTransform="rotate(35)"><rect width="10" height="10" fill="#e5f1eb" /><line x1="0" y1="0" x2="0" y2="10" stroke="#78a18d" strokeWidth="2" opacity=".5" /></pattern>
         <pattern id="stage-cross-hatch" width="12" height="12" patternUnits="userSpaceOnUse"><rect width="12" height="12" fill="#edf3e3" /><path d="M0 0L12 12M12 0L0 12" stroke="#7e9461" strokeWidth="1.4" opacity=".45" /></pattern>
-        <linearGradient id="stage-background" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="#fffdf8" /><stop offset=".55" stopColor="#fbfcff" /><stop offset="1" stopColor="#f4f0ff" /></linearGradient>
-        <filter id="stage-shadow" x="-20%" y="-20%" width="140%" height="160%"><feDropShadow dx="0" dy="8" stdDeviation="10" floodColor="#17211b" floodOpacity=".09" /></filter>
+        <linearGradient id="stage-background" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="#fffaf0" /><stop offset=".48" stopColor="#f7fbff" /><stop offset="1" stopColor="#f3efff" /></linearGradient>
+        <linearGradient id="stage-card-blue" x1="0" y1="0" x2="1" y2="1"><stop stopColor="#f4f9ff" /><stop offset="1" stopColor="#dceaff" /></linearGradient>
+        <linearGradient id="stage-card-purple" x1="0" y1="0" x2="1" y2="1"><stop stopColor="#faf7ff" /><stop offset="1" stopColor="#e8deff" /></linearGradient>
+        <linearGradient id="stage-card-coral" x1="0" y1="0" x2="1" y2="1"><stop stopColor="#fff8f5" /><stop offset="1" stopColor="#ffdcd3" /></linearGradient>
+        <linearGradient id="stage-card-teal" x1="0" y1="0" x2="1" y2="1"><stop stopColor="#f4fffd" /><stop offset="1" stopColor="#d2f3ed" /></linearGradient>
+        <filter id="stage-shadow" x="-20%" y="-20%" width="140%" height="170%"><feDropShadow dx="0" dy="10" stdDeviation="12" floodColor="#24355f" floodOpacity=".13" /></filter>
         <marker id="stage-arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto" markerUnits="strokeWidth"><path d="M1 1L10 6L1 11" fill="none" stroke="#9a5b16" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></marker>
       </defs>
       <rect width={stageWidth} height={stageHeight} fill="url(#stage-background)" />
       <rect width={stageWidth} height={stageHeight} fill="url(#stage-dots)" />
+      <circle cx="1370" cy="38" r="120" fill="#ffd95c" opacity=".12" aria-hidden="true" />
+      <circle cx="35" cy="785" r="150" fill="#6f4cc3" opacity=".08" aria-hidden="true" />
       <g key={`${scene.sceneId}-${scene.revision}`} className="visual-stage-scene">
         {scene.elements.map((element, index) => {
           if (element.type === "text") return <SvgText key={element.id} element={element} index={index} />;
@@ -169,7 +183,7 @@ export function VisualScene({ scene }: { scene: ExcalidrawScene }) {
 }
 
 export function VisualStageProjector() {
-  const [scene, setScene] = useState<ExcalidrawScene | null>(null);
+  const [scene, setScene] = useState<VisualStageScene | null>(null);
   const [connection, setConnection] = useState<"connecting" | "connected" | "offline">("connecting");
   const lastRevision = useRef(-1);
 
@@ -179,7 +193,7 @@ export function VisualStageProjector() {
       try {
         const response = await fetch(`${controlUrl}/board`, { cache: "no-store" });
         if (!response.ok) throw new Error(`Board service returned ${response.status}`);
-        const candidate = await response.json() as ExcalidrawScene;
+        const candidate = await response.json() as VisualStageScene;
         if (!disposed && candidate.revision !== lastRevision.current) {
           lastRevision.current = candidate.revision;
           setScene(candidate);

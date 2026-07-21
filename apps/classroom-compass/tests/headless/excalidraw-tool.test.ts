@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { decimalComparisonScene, ExcalidrawBoardController, genericTutorScene, teacherBrainPlanScene } from "../../headless/whiteboard/excalidraw-tool";
+import { decimalComparisonScene, genericTutorScene, teacherBrainPlanScene, teacherBrainVisualStageScene, VisualStageBoardController } from "../../headless/whiteboard/excalidraw-tool";
 
-describe("bounded Excalidraw whiteboard tool", () => {
+describe("bounded Visual Stage whiteboard tool", () => {
   it("builds an accurate reviewed decimal scene", () => {
     const scene = decimalComparisonScene("explain", "en", 1);
-    const board = new ExcalidrawBoardController();
+    const board = new VisualStageBoardController();
     expect(board.render(scene)).toMatchObject({
       sceneId: "decimal-comparison",
       source: "reviewed-component",
@@ -29,7 +29,7 @@ describe("bounded Excalidraw whiteboard tool", () => {
   });
 
   it("accepts an agent-planned drawing only through the public schema", () => {
-    const board = new ExcalidrawBoardController();
+    const board = new VisualStageBoardController();
     const rendered = board.render({
       schemaVersion: 1,
       sceneId: "agent-fraction-sketch",
@@ -91,7 +91,7 @@ describe("bounded Excalidraw whiteboard tool", () => {
   });
 
   it("rejects duplicate IDs and out-of-bounds agent commands", () => {
-    const board = new ExcalidrawBoardController();
+    const board = new VisualStageBoardController();
     const base = {
       schemaVersion: 1 as const,
       sceneId: "invalid-scene",
@@ -143,6 +143,46 @@ describe("bounded Excalidraw whiteboard tool", () => {
     expect(JSON.stringify(scene)).not.toContain("private operator rationale");
     expect(JSON.stringify(scene)).not.toContain("private resume plan");
     expect(JSON.stringify(scene)).not.toContain("privateTranscript");
-    expect(() => new ExcalidrawBoardController().render(scene)).not.toThrow();
+    expect(() => new VisualStageBoardController().render(scene)).not.toThrow();
+  });
+
+  it("uses the child-friendly Visual Stage layout instead of projecting a custom-SVG placeholder", () => {
+    const scene = teacherBrainVisualStageScene({
+      disposition: "answer",
+      answer: "Plants use sunlight, water, and carbon dioxide to make sugar and release oxygen.",
+      spokenAnswer: "Plants use sunlight, water, and carbon dioxide to make sugar.",
+      visual: {
+        title: "How plants make food",
+        kind: "sequence",
+        keyIdea: "A leaf uses light energy to make sugar.",
+        example: "Trace each ingredient into the leaf.",
+        nodes: [
+          { label: "Sunlight", detail: "Energy from the sun", symbol: "sun" },
+          { label: "Water", detail: "Moves up from the roots", symbol: "water" },
+          { label: "Sugar", detail: "Food made by the plant", symbol: "plant" },
+        ],
+        connections: [{ from: 0, to: 1, label: "joins" }, { from: 1, to: 2, label: "helps make" }],
+      },
+      followUpQuestion: "What provides the energy?",
+      provider: "teacher-brain-fixture",
+      model: "fixture",
+      language: "en",
+      boardPlan: {
+        board_actions: [
+          { type: "board.clear", region: "all" },
+          { type: "board.write_text", region: "top", text: "How plants make food", element_id: "title" },
+          { type: "board.render_custom", svg: "<svg><text>Sunlight</text><text>Water</text><text>Sugar</text></svg>", element_id: "diagram" },
+        ],
+        narration_segments: [{ text: "Plants make sugar using light.", language: "English" }],
+        check_for_understanding: "What provides the energy?",
+        pedagogical_rationale: "Use a concrete process.",
+        resume_guidance: "Return to the lesson.",
+      },
+    }, 7);
+
+    expect(scene.sceneId).toBe("general-tutor-answer");
+    expect(JSON.stringify(scene)).toContain("THE BIG IDEA");
+    expect(JSON.stringify(scene)).toContain("Sunlight");
+    expect(JSON.stringify(scene)).not.toContain("custom diagram");
   });
 });

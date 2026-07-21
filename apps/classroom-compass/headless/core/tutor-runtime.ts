@@ -3,7 +3,7 @@ import { DecimalTutorPolicy } from "../policies/decimal-tutor-policy";
 import { ArithmeticTutorPolicy } from "../policies/arithmetic-tutor-policy";
 import { LocalEventStore } from "../storage/local-event-store";
 import type { ComprehensionCheck, TutorAnswerProvider, TutorAssessment, TutorHistoryItem, TutorTurn } from "../reasoning/tutor-provider";
-import { coachingFeedbackScene, decimalComparisonScene, ExcalidrawBoardController, genericTutorScene, teacherBrainPlanScene, tutorThinkingScene, type ExcalidrawScene } from "../whiteboard/excalidraw-tool";
+import { coachingFeedbackScene, decimalComparisonScene, genericTutorScene, teacherBrainVisualStageScene, tutorThinkingScene, VisualStageBoardController, type VisualStageScene } from "../whiteboard/excalidraw-tool";
 import { stripKnownTutorSpeech, transcriptSimilarity } from "./turn-filter";
 
 type GeneralCheckState = {
@@ -117,7 +117,7 @@ export class TutorRuntime {
     private output: ClassroomOutputAdapter,
     private tutorProvider: TutorAnswerProvider | null = null,
     private policy = new DecimalTutorPolicy(),
-    private board = new ExcalidrawBoardController(),
+    private board = new VisualStageBoardController(),
   ) {}
 
   async start(options: { stopWhenSensorsComplete?: boolean } = {}) {
@@ -515,7 +515,7 @@ export class TutorRuntime {
     try {
       await this.showBoard(
         turn.boardPlan
-          ? teacherBrainPlanScene(turn.boardPlan, turn.visual.title, turnLanguage, ++this.boardRevision)
+          ? teacherBrainVisualStageScene(turn, ++this.boardRevision)
           : genericTutorScene(turn, ++this.boardRevision),
       );
       const spokenSegments = turn.spokenSegments?.length
@@ -631,6 +631,6 @@ export class TutorRuntime {
   }
 
   snapshot() { return this.store.snapshot(); }
-  publicBoardState(): ExcalidrawScene { return this.board.snapshot(); }
+  publicBoardState(): VisualStageScene { return this.board.snapshot(); }
   async deleteSession() { await this.stop("Session deleted."); await this.store.delete(); }
 }

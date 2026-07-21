@@ -159,7 +159,7 @@ export class TeacherBrainTutorProvider implements TutorAnswerProvider {
       teachingTurnResponseSchema,
       signal,
     );
-    return this.toTutorTurn(result, input.lessonTitle);
+    return this.toTutorTurn(result, input.lessonTitle, input.transcript);
   }
 
   async beginLesson(
@@ -217,6 +217,7 @@ export class TeacherBrainTutorProvider implements TutorAnswerProvider {
   private toTutorTurn(
     result: z.infer<typeof teachingTurnResponseSchema>,
     lessonTitle: string,
+    studentQuestion?: string,
   ): TutorTurn {
     if (result.kind === "interruption") {
       const firstAction = result.plan.board_actions[0];
@@ -236,19 +237,47 @@ export class TeacherBrainTutorProvider implements TutorAnswerProvider {
       .filter((segment) => Boolean(segment.text));
     const narration = spokenSegments.map((segment) => segment.text).join(" ");
     const spokenLanguage = spokenSegments[0]?.language ?? "en";
-    const nodes = result.plan.board_actions
+    const boardTitle = result.plan.board_actions.find((action) =>
+      action.type === "board.write_text" && action.region === "top"
+    );
+    const visualTitle = boardTitle?.type === "board.write_text"
+      ? boardTitle.text.slice(0, 100)
+      : questionTitle(studentQuestion) || lessonTitle.slice(0, 100) || "Student question";
+    const customLabels = orderVisualLabels(result.plan.board_actions
+      .filter((action): action is Extract<TeacherBrainBoardAction, { type: "board.render_custom" }> => action.type === "board.render_custom")
+      .flatMap((action) => extractSvgTextLabels(action.svg))
+      .filter((label) => normalizedWords(label) !== normalizedWords(visualTitle)), `${visualTitle} ${spokenSegments[0]?.text ?? narration}`);
+    const actionNodes = result.plan.board_actions
       .map(actionSummary)
-      .filter((node): node is { label: string; detail: string } => node !== null)
-      .slice(0, 6);
+      .filter((node): node is NonNullable<ReturnType<typeof actionSummary>> => node !== null)
+      .filter((node) => normalizedWords(node.label) !== normalizedWords(visualTitle));
+    const nodes = uniqueVisualNodes(
+      customLabels.length >= 2
+        ? customLabels.map(visualNodeForLabel)
+        : actionNodes,
+    ).slice(0, 4);
+    const visualKind = inferVisualKind(`${visualTitle} ${spokenSegments[0]?.text ?? narration}`);
+    const connections = nodes.slice(1).map((_, index) => ({
+      from: index,
+      to: index + 1,
+      label: visualKind === "sequence" ? "then" : visualKind === "cause_effect" ? "leads to" : "connects to",
+    }));
+    const spokenSentences = (spokenSegments[0]?.text ?? narration)
+      .split(/(?<=[.!?])\s+/)
+      .map((sentence) => sentence.trim())
+      .filter(Boolean);
 
     return {
       disposition: "answer",
       answer: narration.slice(0, 1_200),
       spokenAnswer: spokenSegments[0]?.text.slice(0, 700) ?? narration.slice(0, 700),
       visual: {
-        title: lessonTitle.slice(0, 100) || "Student question",
+        title: visualTitle,
+        kind: visualKind,
+        keyIdea: spokenSentences[0]?.slice(0, 220) || visualTitle,
+        example: spokenSentences[1]?.slice(0, 220) || "Use the picture to trace how each part connects.",
         nodes,
-        connections: [],
+        connections,
       },
       followUpQuestion: result.plan.check_for_understanding.slice(0, 240),
       provider: this.id,
@@ -394,23 +423,118 @@ function languageCode(value: string): "en" | "es" {
 
 function actionSummary(
   action: TeacherBrainBoardAction,
-): { label: string; detail: string } | null {
+): TutorTurn["visual"]["nodes"][number] | null {
   if (action.type === "board.write_text") {
-    return { label: action.text.slice(0, 80), detail: `Board text · ${action.region}` };
+    return visualNodeForLabel(action.text.slice(0, 80));
   }
   if (action.type === "board.write_math") {
-    return { label: action.latex.slice(0, 80), detail: `Mathematical representation · ${action.region}` };
+    return { label: plainMath(action.latex).slice(0, 80), detail: "See how the quantities fit together.", symbol: "number" };
   }
   if (action.type === "board.plot_function") {
-    return { label: `f(x) = ${action.expr}`.slice(0, 80), detail: `Domain ${action.domain[0]} to ${action.domain[1]}` };
+    return { label: `f(x) = ${action.expr}`.slice(0, 80), detail: `Follow the graph from ${action.domain[0]} to ${action.domain[1]}.`, symbol: "number" };
   }
   if (action.type === "board.draw_number_line") {
-    return { label: "Number line", detail: `${action.min} to ${action.max}` };
+    return { label: "Number line", detail: `Place the values between ${action.min} and ${action.max}.`, symbol: "number" };
   }
   if (action.type === "board.draw_fraction_bars") {
-    return { label: action.fractions.join(", ").slice(0, 80), detail: "Fraction bars" };
+    return { label: action.fractions.join(", ").slice(0, 80), detail: "Compare equal parts of the same whole.", symbol: "divide" };
   }
   return null;
+}
+
+function extractSvgTextLabels(svg: string): string[] {
+  const labels: string[] = [];
+  for (const match of svg.matchAll(/<text\b[^>]*>([\s\S]*?)<\/text>/gi)) {
+    const label = decodeXmlText(match[1].replace(/<[^>]*>/g, " "))
+      .replace(/\s+/g, " ")
+      .trim();
+    if (label.length >= 2 && label.length <= 80) labels.push(label);
+    if (labels.length >= 12) break;
+  }
+  return [...new Set(labels)];
+}
+
+function decodeXmlText(value: string) {
+  return value
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, "\"")
+    .replace(/&#39;|&apos;/gi, "'");
+}
+
+function normalizedWords(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+function questionTitle(question?: string) {
+  const normalized = question?.replace(/\s+/g, " ").trim().replace(/[?.!]+$/, "") ?? "";
+  if (!normalized) return "";
+  return `${normalized[0].toUpperCase()}${normalized.slice(1)}`.slice(0, 100);
+}
+
+function orderVisualLabels(labels: string[], context: string) {
+  const content = context.toLowerCase();
+  if (!/water cycle|evaporation|condensation|precipitation/.test(content)) return labels;
+  const waterCycleOrder = (label: string) => {
+    const value = label.toLowerCase();
+    if (/sun|heat|energy/.test(value)) return 0;
+    if (/evapor|transpir|vapor/.test(value)) return 1;
+    if (/condens|cloud/.test(value)) return 2;
+    if (/rain|precip|snow|hail/.test(value)) return 3;
+    if (/collect|river|lake|ocean|ground/.test(value)) return 4;
+    return 5;
+  };
+  return labels
+    .map((label, index) => ({ label, index, order: waterCycleOrder(label) }))
+    .sort((a, b) => a.order - b.order || a.index - b.index)
+    .map(({ label }) => label);
+}
+
+function uniqueVisualNodes(nodes: TutorTurn["visual"]["nodes"]) {
+  const seen = new Set<string>();
+  return nodes.filter((node) => {
+    const key = normalizedWords(node.label);
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function visualNodeForLabel(label: string): TutorTurn["visual"]["nodes"][number] {
+  const content = label.toLowerCase();
+  if (/sun|light|solar/.test(content)) return { label, detail: "Energy arrives from sunlight.", symbol: "sun" };
+  if (/water|rain|vapor|ocean/.test(content)) return { label, detail: "Track where the water moves next.", symbol: "water" };
+  if (/plant|leaf|root|sugar|glucose|food/.test(content)) return { label, detail: "See how this helps the plant grow.", symbol: "plant" };
+  if (/cloud|condens/.test(content)) return { label, detail: "Tiny droplets gather together.", symbol: "cloud" };
+  if (/earth|planet|world/.test(content)) return { label, detail: "Connect this part to the whole system.", symbol: "earth" };
+  if (/atom|molecule|carbon|oxygen|gas|chemical/.test(content)) return { label, detail: "Follow this material through the change.", symbol: "atom" };
+  if (/number|fraction|equation|equal|total|\d/.test(content)) return { label, detail: "Use the quantities as clues.", symbol: "number" };
+  return { label, detail: "Look for how this part connects to the next idea.", symbol: "idea" };
+}
+
+function inferVisualKind(value: string): NonNullable<TutorTurn["visual"]["kind"]> {
+  const content = value.toLowerCase();
+  if (/cycle|again and again|repeats?|loops? back/.test(content)) return "cycle";
+  if (/compare|difference|versus| vs\.? |greater|less than/.test(content)) return "comparison";
+  if (/cause|because|why |results? in|leads? to/.test(content)) return "cause_effect";
+  if (/how |process|steps?|first|next|then|finally|make|form/.test(content)) return "sequence";
+  if (/groups?|times|multiply|share equally/.test(content)) return "groups";
+  return "concept";
+}
+
+function plainMath(value: string) {
+  return value
+    .replace(/\\text\{?([^{}]+)\}?/g, "$1")
+    .replace(/\\frac\{([^{}]+)\}\{([^{}]+)\}/g, "$1/$2")
+    .replace(/\\(?:times|cdot)/g, "×")
+    .replace(/\\(?:rightarrow|longrightarrow)/g, "→")
+    .replace(/\\leq?/g, "≤")
+    .replace(/\\geq?/g, "≥")
+    .replace(/[{}]/g, "")
+    .replace(/\\[;,]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function errorDetail(payload: unknown): string {

@@ -103,6 +103,58 @@ describe("Teacher Brain API tutor provider", () => {
     expect(createTutorProviderFromEnvironment({})?.id).toBe("ollama-local-tutor@1.0.0");
   });
 
+  it("turns safe labels from a requested custom sketch into Visual Stage concept cards", async () => {
+    const fetcher = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.endsWith("/api/teacher/sessions")) {
+        return jsonResponse({ session_id: "visual-stage-fixture", status: "active" });
+      }
+      return jsonResponse({
+        session_id: "visual-stage-fixture",
+        turn_index: 1,
+        kind: "interruption",
+        student: "Jordan",
+        plan: {
+          board_actions: [
+            { type: "board.clear", region: "all" },
+            {
+              type: "board.render_custom",
+              svg: "<svg><script>doNotRun()</script><text>Sunlight</text><text>Water</text><text>Carbon dioxide</text><text>Sugar</text></svg>",
+              element_id: "plant-process",
+            },
+          ],
+          narration_segments: [{
+            text: "A leaf uses sunlight, water, and carbon dioxide to make sugar. The plant uses that sugar to grow.",
+            language: "English",
+          }],
+          check_for_understanding: "Which part supplies the energy?",
+          pedagogical_rationale: "Show inputs and output.",
+          resume_guidance: "Return to plant structures.",
+        },
+        token_usage: { input: 30, output: 20, total: 50 },
+        latency_ms: 12,
+      });
+    });
+    const provider = new TeacherBrainTutorProvider({ fetcher: fetcher as typeof fetch });
+
+    const turn = await provider.answer({
+      transcript: "How do plants make food?",
+      lessonTitle: "Open classroom questions",
+      history: [],
+      studentRef: "Jordan",
+    });
+
+    expect(turn.visual.title).toBe("How do plants make food");
+    expect(turn.visual.kind).toBe("sequence");
+    expect(turn.visual.nodes.map((node) => node.label)).toEqual([
+      "Sunlight", "Water", "Carbon dioxide", "Sugar",
+    ]);
+    expect(turn.visual.nodes.map((node) => node.symbol)).toEqual([
+      "sun", "water", "atom", "plant",
+    ]);
+    expect(JSON.stringify(turn.visual)).not.toContain("doNotRun");
+  });
+
   it("opens and explicitly resumes a lesson through the teach endpoint", async () => {
     const requests: Array<{ url: string; body: Record<string, unknown> }> = [];
     let turnIndex = 0;

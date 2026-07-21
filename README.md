@@ -33,8 +33,8 @@ board code. Raw camera frames and microphone samples remain ephemeral by default
 
 ```text
 apps/
-  classroom-compass/  Live camera, speech, tutor loop, and Visual Stage/Excalidraw projector
-  board/              Teacher Brain schema-board compatibility projector
+  classroom-compass/  Live camera, speech, tutor loop, and primary Visual Stage projector
+  board/              Legacy Teacher Brain schema-board compatibility projector
   dashboard/          Reserved operator dashboard workspace
 packages/
   harness/            Python agent tools, memory, orchestration, and journals
@@ -77,7 +77,7 @@ uvicorn server.app.main:app --host 127.0.0.1 --port 8000
 Start the Classroom Compass projector in terminal 2:
 
 ```bash
-npm run dev:excalidraw
+npm run dev:visual-stage
 ```
 
 Open the printed `/board` URL, normally `http://localhost:3000/board`. Then run
@@ -110,7 +110,7 @@ npm run voice:meter
 Start the projector in terminal 1:
 
 ```bash
-npm run dev:excalidraw
+npm run dev:visual-stage
 ```
 
 Start camera preview, raised-hand gating, local Whisper, tutor reasoning, and

@@ -38,7 +38,7 @@ async function runDemo() {
   process.stdout.write(`Session record: ${store.filePath}\n`);
   if (record.evidence[0]) process.stdout.write(`Observed result: ${record.evidence[0].statement}\n`);
   if (boardMode) {
-    process.stdout.write("Excalidraw demo remains available until Ctrl-C.\n");
+    process.stdout.write("Visual Stage demo remains available until Ctrl-C.\n");
     await new Promise<void>((resolve) => {
       const finish = () => resolve();
       process.once("SIGINT", finish);
@@ -85,7 +85,7 @@ async function runTeacherBrainDemo() {
   const control = boardMode ? new ControlServer(runtime, controlPort) : null;
   await control?.start();
   if (boardMode) {
-    process.stdout.write("Open http://localhost:3000/board to watch the live Excalidraw lesson.\n");
+    process.stdout.write("Open http://localhost:3000/board to watch the live Visual Stage lesson.\n");
   }
   await runtime.start({ stopWhenSensorsComplete: !boardMode });
 
@@ -182,7 +182,7 @@ function showHelp() {
   process.stdout.write(`  CC_CAMERA_COMMAND_JSON='["/path/to/local-camera-adapter"]'\n`);
   process.stdout.write(`  CC_MICROPHONE_COMMAND_JSON='["/path/to/local-transcriber"]'\n`);
   process.stdout.write(`Each adapter writes one validated event JSON object per stdout line. Without adapters, run mode accepts those JSON lines on stdin.\n`);
-  process.stdout.write(`\nProjector output:\n  npm run board:dev    Serve the local Excalidraw projector at http://localhost:3000/board\n`);
+  process.stdout.write(`\nProjector output:\n  npm run dev:visual-stage    Serve the child-friendly Visual Stage at http://localhost:3000/board\n`);
 }
 
 try {

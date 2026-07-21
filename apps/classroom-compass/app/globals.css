@@ -31,7 +31,7 @@ a { color: inherit; text-decoration: none; }
 .excalidraw-projector { position: fixed; inset: 0; overflow: hidden; background: #fffdf7; }
 .excalidraw-canvas { position: absolute; inset: 0; }
 .excalidraw-projector .excalidraw { --color-primary: #155f47; --color-primary-darker: #0d513b; }
-.projector-badge { position: fixed; z-index: 10; right: 18px; bottom: 16px; display: flex; align-items: center; gap: 8px; padding: 8px 12px; border: 1px solid #dfe3dc; border-radius: 999px; background: rgba(255,253,247,.92); color: #526057; font-size: 11px; box-shadow: 0 6px 18px rgba(23,33,27,.08); pointer-events: none; }
+.projector-badge { position: fixed; z-index: 10; right: 18px; bottom: 16px; display: flex; align-items: center; gap: 8px; padding: 8px 12px; border: 1px solid rgba(111,76,195,.15); border-radius: 999px; background: rgba(255,255,255,.9); color: #45516d; font-size: 11px; font-weight: 700; box-shadow: 0 8px 24px rgba(36,53,95,.1); backdrop-filter: blur(8px); pointer-events: none; }
 .projector-dot { width: 9px; height: 9px; border-radius: 50%; background: #c28a32; box-shadow: 0 0 0 3px #fff1d8; }
 .projector-dot.connected { background: #207759; box-shadow: 0 0 0 3px #e5f1eb; }
 .projector-dot.offline { background: #9b3a36; box-shadow: 0 0 0 3px #f9e8e5; }
@@ -40,18 +40,18 @@ a { color: inherit; text-decoration: none; }
 .projector-status small { max-width: 600px; color: #647067; font-size: 14px; }
 
 /* Lightweight animated SVG projector. Excalidraw remains at /board/excalidraw as a fallback. */
-.visual-stage-projector { position: fixed; inset: 0; overflow: hidden; background: #fffdf8; }
+.visual-stage-projector { position: fixed; inset: 0; overflow: hidden; background: #fffaf0; }
 .visual-stage-svg { display: block; width: 100%; height: 100%; }
 .visual-stage-scene { transform-origin: center; animation: visual-scene-enter .38s cubic-bezier(.2,.75,.25,1) both; }
-.visual-stage-shape { transform-box: fill-box; transform-origin: center; filter: url(#stage-shadow); opacity: 0; animation: visual-shape-enter .46s cubic-bezier(.2,.9,.2,1.15) var(--stage-delay) forwards; }
+.visual-stage-shape { transform-box: fill-box; transform-origin: center; filter: url(#stage-shadow); opacity: 0; animation: visual-shape-enter .5s cubic-bezier(.16,.9,.22,1.15) var(--stage-delay) forwards; }
 .visual-stage-shape-group .visual-stage-shape-label { opacity: 0; animation: visual-text-enter .32s ease-out var(--stage-delay) forwards; }
 .visual-stage-shape.is-compact { filter: none; animation-duration: .28s; }
 .visual-stage-text { font-family: var(--font-manrope), system-ui, sans-serif; font-weight: 500; letter-spacing: -.015em; opacity: 0; animation: visual-text-enter .4s ease-out var(--stage-delay) forwards; }
-.visual-stage-display-text { font-family: var(--font-newsreader), Georgia, serif; font-weight: 500; letter-spacing: -.035em; }
-.visual-stage-eyebrow { font-weight: 700; letter-spacing: .105em; }
-.visual-stage-card-title { font-weight: 700; letter-spacing: -.025em; }
+.visual-stage-display-text { font-family: var(--font-newsreader), Georgia, serif; font-weight: 650; letter-spacing: -.035em; }
+.visual-stage-eyebrow { font-weight: 800; letter-spacing: .105em; }
+.visual-stage-card-title { font-weight: 800; letter-spacing: -.025em; }
 .visual-stage-shape-label { font-family: var(--font-manrope), system-ui, sans-serif; font-size: 22px; font-weight: 700; fill: #1d2b53; pointer-events: none; }
-.visual-stage-symbol { width: 100%; height: 100%; display: grid; place-items: center; }
+.visual-stage-symbol { width: 100%; height: 100%; display: grid; place-items: center; filter: drop-shadow(0 3px 5px rgba(36,53,95,.14)); }
 .visual-stage-connector { opacity: 0; animation: visual-connector-enter .2s ease var(--stage-delay) forwards; }
 .visual-stage-connector path { stroke-dasharray: 1600; stroke-dashoffset: 1600; animation: visual-line-draw .65s ease-out var(--stage-delay) forwards; }
 .visual-stage-line-label { font-family: var(--font-manrope), system-ui, sans-serif; font-size: 19px; font-weight: 500; fill: #9a5b16; }

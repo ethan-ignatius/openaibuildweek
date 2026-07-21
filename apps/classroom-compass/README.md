@@ -1,6 +1,6 @@
-# Classroom Compass — headless classroom tutor with an Excalidraw projector
+# Classroom Compass — headless classroom tutor with a Visual Stage projector
 
-Classroom Compass is a background classroom service connected to local camera and microphone pipelines. It transcribes a question, asks a local reasoning model for a concise teaching response and visual plan, validates that plan, draws it on a local Excalidraw projector, and speaks the explanation.
+Classroom Compass is a background classroom service connected to local camera and microphone pipelines. It transcribes a question, asks a reasoning model for a concise teaching response and visual plan, validates that plan, lays it out on the low-latency animated SVG Visual Stage, and speaks the explanation.
 
 It does **not** require a teacher dashboard. The only browser surface required for visual output is the full-screen `/board` canvas running on the projector or interactive whiteboard. The existing teacher-facing web prototype remains optional legacy/demo code.
 
@@ -13,7 +13,7 @@ headless sensor adapters
         ↓ sanitized, untrusted transcript
 reviewed computation tool, local Ollama model, or Teacher Brain
         ↓ schema-validated answer + visual plan
-local Excalidraw projector + speaker
+local Visual Stage projector + speaker
         ↓ optional follow-up question
 microphone transcript
         ↓
@@ -27,13 +27,13 @@ The live voice path is not limited to known question strings or decimal values. 
 - “What is the difference between area and perimeter?”
 - “Why was the water cycle important to early settlements?”
 
-For open-ended questions, the model creates the answer and a small concept/sequence/comparison plan. Classroom Compass—not the model—lays out the validated nodes and arrows in Excalidraw. Recognized decimal comparisons are routed through a reviewed computation tool before the language model, so arithmetic is calculated rather than guessed. That tool accepts arbitrary values from 0 to 1; it is not a table of question-and-answer strings. The showcase prompt is:
+For open-ended questions, the model creates the answer and a small concept/sequence/comparison plan. Classroom Compass—not the model—lays out the validated nodes, icons, cards, and arrows in Visual Stage. Recognized decimal comparisons are routed through a reviewed computation tool before the language model, so arithmetic is calculated rather than guessed. That tool accepts arbitrary values from 0 to 1; it is not a table of question-and-answer strings. The showcase prompt is:
 
 > “Why is 0.35 not bigger than 0.4? Thirty-five is bigger than four.”
 
 It draws `0.4 = 0.40`, a place-value chart, two exact 10×10 hundred grids, and a number line. It compares the tenths, asks which value is greater, updates the canvas with one hint if needed, and ends with cautious follow-up language. It never claims that the student has permanently mastered—or is “bad at”—decimals.
 
-## Run the Excalidraw demonstration
+## Run the Visual Stage demonstration
 
 Start the projector-only canvas:
 
@@ -48,18 +48,18 @@ Open the URL printed by that command, normally `http://localhost:3000/board`, on
 npm run tutor -- demo --board
 ```
 
-The simulated microphone question triggers the reviewed decimal policy. The headless service publishes three Excalidraw scenes—explanation, retry hint, and completion—to the loopback-only control service. The demo remains available until `Ctrl-C`.
+The simulated microphone question triggers the reviewed decimal policy. The headless service publishes three Visual Stage scenes—explanation, retry hint, and completion—to the loopback-only control service. The demo remains available until `Ctrl-C`.
 
-The Excalidraw toolbar remains available for touch, pen, or mouse additions. Tutor updates replace only the tutor scene; teacher/student drawing persistence and layer ownership are not yet implemented.
+The primary `/board` route is a presentation-focused, animated SVG canvas designed for grades 4–8. The optional `/board/excalidraw` route remains available when freehand pen or touch editing is specifically needed.
 
 ## Use the learner-aware Teacher Brain
 
-From the repository root, start the Python API and Excalidraw projector in separate
+From the repository root, start the Python API and Visual Stage projector in separate
 terminals:
 
 ```bash
 .venv/bin/python -m uvicorn server.app.main:app --host 127.0.0.1 --port 8000
-npm run dev:excalidraw
+npm run dev:visual-stage
 ```
 
 Then map the perception pipeline's fixed seat references to teacher-provided names
@@ -99,7 +99,7 @@ npm install
 npm run tutor:demo
 ```
 
-Expected output includes the Excalidraw scene commands, six short tutor messages, one retry hint, one observed-result record, and:
+Expected output includes the Visual Stage scene commands, six short tutor messages, one retry hint, one observed-result record, and:
 
 ```text
 Raw media retained: 0 bytes
@@ -138,7 +138,7 @@ On the first run, allow **Microphone** when macOS asks. Wait for `Classroom Comp
 
 > Why is zero point three five not bigger than zero point four? Thirty-five is bigger than four.
 
-Pause for about two seconds. The Excalidraw explanation should appear. After the comprehension prompt, say:
+Pause for about two seconds. The Visual Stage explanation should appear. After the comprehension prompt, say:
 
 > Zero point four zero is greater.
 
@@ -243,7 +243,7 @@ CC_TUTOR_PROVIDER=none              # disable open-ended model answers; reviewed
 Set `CC_TUTOR_PROVIDER=teacher-brain` to use the learner-aware Python service
 described above. `ollama` remains the implicit default for standalone use.
 
-The model receives sanitized transcript text and recent text conversation context—not raw microphone audio, video, student profiles, shell access, browser access, or unrestricted Excalidraw control.
+The model receives sanitized transcript text and recent text conversation context—not raw microphone audio, video, student profiles, shell access, browser access, or unrestricted canvas control.
 
 ## Run as a background service
 
@@ -307,7 +307,7 @@ Malformed events, unknown event kinds, and instruction-shaped classroom speech c
 - `headless/whiteboard/excalidraw-tool.ts` — validated public scene schema, deterministic decimal scene, and bounded agent-drawing tool
 - `headless/storage/local-event-store.ts` — atomic, permission-restricted local session records
 - `headless/control/control-server.ts` — loopback-only operational control
-- `app/board/page.tsx` and `components/board/` — projector-only local Excalidraw renderer
+- `app/board/page.tsx` and `components/board/` — projector-only animated Visual Stage renderer
 - `tests/headless/` — policy, integration, retention, and process-cleanup tests
 
 ## Autonomy boundaries
@@ -316,7 +316,7 @@ The independent tutor can respond to general educational questions through the c
 
 Medical, legal, mental-health, personal-safety, disciplinary, and other high-stakes questions are instructed to defer to a trusted adult or qualified source. Questions requiring live/current information are also deferred because the local model has no browsing tool. Classroom speech remains untrusted data and cannot change the system prompt or unlock tools.
 
-Every model response must match a strict answer/visual schema. Invalid responses are rejected. The model supplies bounded labels and relationships; deterministic code creates the actual Excalidraw elements. Reviewed computation tools run before the model for concepts they support. If Ollama is unavailable, those tools continue to work, while unsupported open-ended questions receive an availability notice rather than a fabricated answer.
+Every model response must match a strict answer/visual schema. Invalid responses are rejected. The model supplies bounded labels and relationships; deterministic code creates the actual Visual Stage elements. Reviewed computation tools run before the model for concepts they support. If Ollama is unavailable, those tools continue to work, while unsupported open-ended questions receive an availability notice rather than a fabricated answer.
 
 The temporary instructional hypothesis used to choose a response is not saved as permanent evidence. The saved statement is limited to what was observed after the interaction.
 

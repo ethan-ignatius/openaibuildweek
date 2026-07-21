@@ -66,14 +66,16 @@ export const excalidrawSceneSchema = z.object({
 });
 
 export type BoardElement = z.infer<typeof boardElementSchema>;
-export type ExcalidrawScene = z.infer<typeof excalidrawSceneSchema>;
+export type VisualStageScene = z.infer<typeof excalidrawSceneSchema>;
+/** @deprecated The shared scene is renderer-neutral; use VisualStageScene. */
+export type ExcalidrawScene = VisualStageScene;
 
 /**
  * Tool boundary for either reviewed components or an LLM diagram planner.
  * Only the returned public scene is available to the projector process.
  */
-export class ExcalidrawBoardController {
-  readonly id = "local-excalidraw-board@1.0.0";
+export class VisualStageBoardController {
+  readonly id = "local-visual-stage-board@2.0.0";
   private scene: ExcalidrawScene = {
     schemaVersion: 1,
     sceneId: "classroom-compass-idle",
@@ -104,6 +106,9 @@ export class ExcalidrawBoardController {
     return structuredClone(this.scene);
   }
 }
+
+/** @deprecated Kept only for the optional /board/excalidraw compatibility route. */
+export class ExcalidrawBoardController extends VisualStageBoardController {}
 
 const palette = {
   ink: "#17211b",
@@ -141,6 +146,15 @@ function wrapText(value: string, lineLength = 58, maxLines = 12) {
   }
   if (lines.length > maxLines) return [...lines.slice(0, maxLines - 1), `${lines[maxLines - 1].slice(0, Math.max(0, lineLength - 1))}…`].join("\n");
   return lines.join("\n");
+}
+
+function truncateLine(value: string, maxLength: number) {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (normalized.length <= maxLength) return normalized;
+  const clipped = normalized.slice(0, maxLength - 1);
+  const wordBoundary = clipped.lastIndexOf(" ");
+  const ending = wordBoundary > maxLength * 0.65 ? wordBoundary : clipped.length;
+  return `${clipped.slice(0, ending).trim()}…`;
 }
 
 function inferVisualSymbol(value: string, fallback: z.infer<typeof visualSymbolSchema> = "idea"): z.infer<typeof visualSymbolSchema> {
@@ -317,6 +331,23 @@ export function teacherBrainPlanScene(
     source: "agent-drawing",
     elements,
   });
+}
+
+/**
+ * Visual Stage favors its child-friendly concept layout for free-form Teacher
+ * Brain sketches. Reviewed quantitative primitives keep their exact renderers.
+ * Raw custom SVG is never executed or projected.
+ */
+export function teacherBrainVisualStageScene(turn: TutorTurn, revision: number): VisualStageScene {
+  const plan = teacherBrainPlanSchema.parse(turn.boardPlan);
+  const usesReviewedQuantitativeVisual = plan.board_actions.some((action) =>
+    action.type === "board.draw_number_line"
+      || action.type === "board.draw_fraction_bars"
+      || action.type === "board.plot_function"
+  );
+  return usesReviewedQuantitativeVisual
+    ? teacherBrainPlanScene(plan, turn.visual.title, turn.language ?? "en", revision)
+    : genericTutorScene(turn, revision);
 }
 
 function isLanguage(value: string, target: "en" | "es") {
@@ -503,8 +534,15 @@ export function genericTutorScene(turn: TutorTurn, revision: number): Excalidraw
   const equation = arithmeticMatch?.[0];
   const sentences = turn.answer.split(/(?<=[.!?])\s+/).filter(Boolean);
   const keyIdea = turn.visual.keyIdea?.trim() || sentences[0] || turn.visual.title;
-  const example = turn.visual.example?.trim() || sentences[1] || "Picture the idea one clear step at a time.";
+  const englishRecap = turn.language === "es"
+    ? turn.spokenSegments?.find((segment) => segment.language === "en")?.text.trim()
+    : undefined;
+  const example = englishRecap || turn.visual.example?.trim() || sentences[1] || "Picture the idea one clear step at a time.";
   const visualKind = turn.visual.kind ?? (arithmeticMatch ? "groups" : "concept");
+  const displayTitle = truncateLine(turn.visual.title, 68);
+  const titleFontSize = displayTitle.length > 50 ? 34 : displayTitle.length > 38 ? 38 : 43;
+  const keyIdeaFontSize = keyIdea.length > 115 ? 24 : keyIdea.length > 78 ? 26 : 29;
+  const keyIdeaLineLength = keyIdeaFontSize <= 24 ? 61 : keyIdeaFontSize <= 26 ? 56 : 52;
   const sectionLabels: Record<NonNullable<TutorTurn["visual"]["kind"]>, string> = {
     concept: "CONNECT THE IDEAS",
     sequence: "FOLLOW THE STEPS",
@@ -515,15 +553,15 @@ export function genericTutorScene(turn: TutorTurn, revision: number): Excalidraw
   };
   const elements: BoardElement[] = [
     text("stage-kicker", "CLASSROOM COMPASS  •  VISUAL EXPLANATION", 72, 28, 16, palette.blue),
-    text("tutor-title", turn.visual.title, 72, 61, 43, palette.navy),
+    text("tutor-title", displayTitle, 72, 61, titleFontSize, palette.navy),
     { id: "decor-spark-1", type: "diamond", x: 1_292, y: 40, width: 28, height: 28, strokeColor: palette.sun, backgroundColor: palette.sunSoft, fillStyle: "solid" },
     { id: "decor-spark-2", type: "diamond", x: 1_335, y: 74, width: 17, height: 17, strokeColor: palette.purple, backgroundColor: palette.purpleSoft, fillStyle: "solid" },
     { id: "big-idea-panel", type: "rectangle", x: 70, y: 126, width: 830, height: 180, strokeColor: palette.blue, backgroundColor: palette.blueSoft, fillStyle: "solid", strokeWidth: 2 },
     { id: "big-idea-dot", type: "ellipse", x: 100, y: 151, width: 42, height: 42, strokeColor: palette.blue, backgroundColor: palette.paper, fillStyle: "solid", strokeWidth: 2, label: "★" },
     text("big-idea-label", turn.disposition === "clarify" ? "LET’S CHECK WHAT I HEARD" : turn.disposition === "defer" ? "A SAFE NEXT STEP" : "THE BIG IDEA", 160, 156, 18, palette.blue),
-    text("big-idea-copy", wrapText(keyIdea, 52, 3), 105, 214, 29, palette.navy),
+    text("big-idea-copy", wrapText(keyIdea, keyIdeaLineLength, 3), 105, 214, keyIdeaFontSize, palette.navy),
     { id: "example-panel", type: "rectangle", x: 930, y: 126, width: 440, height: 180, strokeColor: palette.sun, backgroundColor: palette.sunSoft, fillStyle: "solid", strokeWidth: 2 },
-    text("example-label", equation ? "SEE IT WITH NUMBERS" : "MAKE IT REAL", 965, 156, 18, palette.sun),
+    text("example-label", englishRecap ? "English recap" : equation ? "SEE IT WITH NUMBERS" : "MAKE IT REAL", 965, 156, 18, palette.sun),
     text("example-copy", wrapText(equation ? `${example}\n${equation.replace("*", "×").replace("/", "÷")}` : example, 34, 5), 965, 202, equation ? 23 : 21, palette.navy),
     text("path-label", sectionLabels[visualKind], 72, 342, 17, palette.purple),
   ];
@@ -652,7 +690,7 @@ export function genericTutorScene(turn: TutorTurn, revision: number): Excalidraw
     sceneId: "general-tutor-answer",
     revision,
     title: turn.visual.title,
-    language: "en",
+    language: turn.language ?? "en",
     status: "complete",
     source: "agent-drawing",
     elements,

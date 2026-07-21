@@ -8,7 +8,9 @@
   ],
   "scripts": {
     "build": "npm run build --workspace @teacher-brain/shared && npm run build --workspace @teacher-brain/board && npm run build --workspace classroom-compass",
-    "dev:board": "npm run dev --workspace @teacher-brain/board",
+    "dev:board": "npm run board:dev --workspace classroom-compass",
+    "dev:visual-stage": "npm run board:dev --workspace classroom-compass",
+    "dev:teacher-board": "npm run dev --workspace @teacher-brain/board",
     "dev:classroom": "npm run dev --workspace classroom-compass",
     "dev:excalidraw": "npm run board:dev --workspace classroom-compass",
     "demo:teacher-brain": "npm run teacher:demo --workspace classroom-compass --",
