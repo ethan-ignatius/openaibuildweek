@@ -22,7 +22,11 @@ describe("voice turn filtering", () => {
     expect(screenCalledOnUtterance("Ethan, go ahead with your question.").usable).toBe(false);
     expect(screenCalledOnUtterance("Welcome, I heard the door open, but I did not hear a thing.").usable).toBe(false);
     expect(screenCalledOnUtterance("ahead with your question").usable).toBe(false);
+    expect(screenCalledOnUtterance("increasing the light level makes something look darker If less light reaches your eyes").usable).toBe(false);
+    expect(screenCalledOnUtterance("decreased level Te escucho How are light and dark?").usable).toBe(false);
+    expect(screenCalledOnUtterance("lightning formed.").usable).toBe(false);
     expect(screenCalledOnUtterance("Where do clouds come from?").usable).toBe(true);
+    expect(screenCalledOnUtterance("How is lightning formed?").usable).toBe(true);
     expect(screenCalledOnUtterance("¿Cómo usan la luz las plantas?").usable).toBe(true);
     expect(screenCalledOnUtterance("I don't understand equivalent fractions").usable).toBe(true);
   });

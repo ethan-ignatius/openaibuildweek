@@ -172,6 +172,55 @@ describe("headless tutor runtime", () => {
     }
   });
 
+  it("keeps listening through loudspeaker echoes and accepts the student's complete question", async () => {
+    const previousRaise = process.env.CC_REQUIRE_HAND_RAISE;
+    const previousAutostart = process.env.CC_AUTO_START_LESSON;
+    process.env.CC_REQUIRE_HAND_RAISE = "1";
+    process.env.CC_AUTO_START_LESSON = "0";
+    try {
+      const store = await storeFor("session-called-on-echo-test");
+      const output = new ConsoleClassroomOutput(true);
+      const answer = vi.fn<TutorAnswerProvider["answer"]>(async () => ({
+        disposition: "answer" as const,
+        answer: "Lightning forms when electrical charge builds up inside a storm cloud.",
+        spokenAnswer: "Lightning forms when electrical charge builds up inside a storm cloud.",
+        visual: { title: "How lightning forms", nodes: [], connections: [] },
+        followUpQuestion: "",
+        provider: "fixture",
+        model: "fixture",
+        language: "en" as const,
+      }));
+      const provider: TutorAnswerProvider = {
+        id: "echo-resistant-fixture",
+        answer,
+        languageForStudent: () => "es",
+        displayNameForStudent: () => "Emanuel",
+      };
+      const runtime = new TutorRuntime(store, [], output, provider);
+      await runtime.start();
+      const base = { sessionId: "session-called-on-echo-test", source: "live" as const, occurredAt: new Date().toISOString(), provenance: { adapter: "fixture", version: "1", confidenceBand: "medium" as const } };
+
+      await runtime.handleEvent({ ...base, id: "raise", kind: "hand_raise", payload: { seat: "camera-right" } });
+      await runtime.handleEvent({ ...base, id: "prompt-echo", kind: "question_transcribed", payload: { text: "decreased level Te escucho, adelante con tu pregunta. How are light and dark?" } });
+      await runtime.handleEvent({ ...base, id: "partial-question", kind: "response_transcribed", payload: { text: "lightning formed." } });
+      await runtime.handleEvent({ ...base, id: "complete-question", kind: "response_transcribed", payload: { text: "How is lightning formed?" } });
+
+      expect(answer).toHaveBeenCalledOnce();
+      expect(vi.mocked(answer).mock.calls[0][0]).toMatchObject({
+        transcript: "How is lightning formed?",
+        studentRef: "seat:camera-right",
+      });
+      expect(runtime.snapshot().audit.filter((entry) => entry.action === "called_on_fragment_ignored")).toHaveLength(2);
+      expect(runtime.snapshot().audit.some((entry) => entry.action === "called_on_turn_started")).toBe(true);
+      await runtime.stop();
+    } finally {
+      if (previousRaise === undefined) delete process.env.CC_REQUIRE_HAND_RAISE;
+      else process.env.CC_REQUIRE_HAND_RAISE = previousRaise;
+      if (previousAutostart === undefined) delete process.env.CC_AUTO_START_LESSON;
+      else process.env.CC_AUTO_START_LESSON = previousAutostart;
+    }
+  });
+
   it("stops interruptible lesson speech before acknowledging a hand raise", async () => {
     const store = await storeFor("session-spoken-interruption-test");
     const delivered: TutorCommand[] = [];
