@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -149,24 +150,43 @@ def run_prediction_loop(
     chunk_size: int = 10,
     max_students: int | None = None,
     max_predictions: int | None = None,
+    max_workers: int = 1,
 ) -> tuple[pd.DataFrame, TokenUsage]:
     if chunk_size < 1:
         raise ValueError("chunk_size must be positive")
     if max_predictions is not None and max_predictions < 1:
         raise ValueError("max_predictions must be positive")
+    if max_workers < 1:
+        raise ValueError("max_workers must be positive")
     selected_students = list(held_out_students)
     if max_students is not None:
         selected_students = selected_students[:max_students]
 
-    records: list[dict[str, object]] = []
-    total_usage = TokenUsage()
+    tasks: list[tuple[str, list[dict[str, object]], int | None]] = []
+    remaining_predictions = max_predictions
     for student in selected_students:
         student_rows = interactions[interactions["student_id"] == student].sort_values(
             "sequence_index", kind="stable"
         )
         observations = student_rows.to_dict(orient="records")
+        available = max(0, (len(observations) - 1) // chunk_size)
+        limit = None
+        if remaining_predictions is not None:
+            limit = min(available, remaining_predictions)
+            remaining_predictions -= limit
+        if available and (limit is None or limit > 0):
+            tasks.append((student, observations, limit))
+        if remaining_predictions == 0:
+            break
+
+    def predict_student(
+        task: tuple[str, list[dict[str, object]], int | None],
+    ) -> tuple[list[dict[str, object]], TokenUsage]:
+        student, observations, prediction_limit = task
+        student_records: list[dict[str, object]] = []
+        student_usage = TokenUsage()
         for boundary in range(chunk_size, len(observations), chunk_size):
-            if max_predictions is not None and len(records) >= max_predictions:
+            if prediction_limit is not None and len(student_records) >= prediction_limit:
                 break
             new_chunk = observations[boundary - chunk_size : boundary]
             history = observations[:boundary]
@@ -178,8 +198,8 @@ def run_prediction_loop(
                 next_skill_id=str(next_item["skill_id"]),
                 next_skill_name=str(next_item["skill_name"]),
             )
-            total_usage += outcome.usage
-            records.append(
+            student_usage += outcome.usage
+            student_records.append(
                 {
                     "student_id": student,
                     "sequence_index": int(next_item["sequence_index"]),
@@ -194,10 +214,22 @@ def run_prediction_loop(
                     "model": "agent",
                 }
             )
-        if max_predictions is not None and len(records) >= max_predictions:
-            break
-    if not records:
+        return student_records, student_usage
+
+    worker_count = min(max_workers, len(tasks))
+    if worker_count == 0:
         raise ValueError("No prediction points were produced for the selected students")
+    if worker_count == 1:
+        student_results = [predict_student(task) for task in tasks]
+    else:
+        with ThreadPoolExecutor(max_workers=worker_count) as executor:
+            student_results = list(executor.map(predict_student, tasks))
+
+    records: list[dict[str, object]] = []
+    total_usage = TokenUsage()
+    for student_records, student_usage in student_results:
+        records.extend(student_records)
+        total_usage += student_usage
     return pd.DataFrame.from_records(records), total_usage
 
 

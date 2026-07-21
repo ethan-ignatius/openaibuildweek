@@ -19,6 +19,7 @@ def main() -> None:
     parser.add_argument("--data-dir", type=Path, default=Path("data/ncte"))
     parser.add_argument("--max-transcripts", type=int, default=10)
     parser.add_argument("--max-exchanges", type=int, default=100)
+    parser.add_argument("--workers", type=int, default=1)
     parser.add_argument(
         "--condition",
         choices=("full", "pedagogy-off", "bare"),
@@ -34,6 +35,8 @@ def main() -> None:
         parser.error("--max-transcripts must be at least 2 for correlation")
     if arguments.max_exchanges < 1:
         parser.error("--max-exchanges must be positive")
+    if arguments.workers < 1:
+        parser.error("--workers must be positive")
 
     session_id = f"ncte-{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}"
     state_directory = Path("state/evals/ncte") / session_id
@@ -97,6 +100,7 @@ def main() -> None:
             config=config,
             journal=journal,
             max_exchanges=arguments.max_exchanges,
+            max_workers=arguments.workers,
         )
         score_predictions, score_usage = predict_observation_scores(
             dataset.utterances,
@@ -105,6 +109,7 @@ def main() -> None:
             config=config,
             journal=journal,
             max_observations=arguments.max_transcripts,
+            max_workers=arguments.workers,
         )
     except Exception as error:
         detail = f"NCTE model run failed without substituting synthetic results: {error}"

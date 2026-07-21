@@ -84,6 +84,7 @@ def test_ncte_predictions_hide_labels_and_apply_pedagogy_ablation(
         client=full_client,
         config=full_config,
         max_exchanges=2,
+        max_workers=2,
     )
     score_predictions, score_usage = predict_observation_scores(
         dataset.utterances,
@@ -91,6 +92,7 @@ def test_ncte_predictions_hide_labels_and_apply_pedagogy_ablation(
         client=full_client,
         config=full_config,
         max_observations=2,
+        max_workers=2,
     )
 
     assert len(turn_predictions) == 2

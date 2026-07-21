@@ -207,6 +207,24 @@ def test_prediction_loop_uses_chronological_chunk_boundaries() -> None:
     assert capped_predictions["sequence_index"].tolist() == [10]
     assert capped_usage == TokenUsage(input=3, output=2, total=5)
 
+    second_student = interactions.assign(student_id="assist_second")
+    parallel_predictions, parallel_usage = run_prediction_loop(
+        pd.concat([interactions, second_student], ignore_index=True),
+        ["assist_fixture", "assist_second"],
+        FixedPredictor(),
+        chunk_size=10,
+        max_predictions=3,
+        max_workers=2,
+    )
+    assert parallel_predictions[["student_id", "sequence_index"]].to_records(
+        index=False
+    ).tolist() == [
+        ("assist_fixture", 10),
+        ("assist_fixture", 20),
+        ("assist_second", 10),
+    ]
+    assert parallel_usage == TokenUsage(input=9, output=6, total=15)
+
 
 def test_full_context_is_raw_model_comparator_without_memory_write(
     tmp_path: Path,

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from typing import Any, Callable, TypeVar
 
 import pandas as pd
 from pydantic import BaseModel, ConfigDict, Field
@@ -9,6 +11,8 @@ from packages.evals.ncte.data import SCORE_DIMENSIONS
 from packages.harness.config import HarnessConfig
 from packages.harness.journal import JournalWriter
 from packages.harness.model_client import StructuredModelClient, TokenUsage
+
+ResultT = TypeVar("ResultT")
 
 
 class TurnMovePrediction(BaseModel):
@@ -46,14 +50,15 @@ def predict_turn_moves(
     config: HarnessConfig,
     journal: JournalWriter | None = None,
     max_exchanges: int | None = None,
+    max_workers: int = 1,
 ) -> tuple[pd.DataFrame, TokenUsage]:
     selected = exchanges if max_exchanges is None else exchanges.iloc[:max_exchanges]
     if selected.empty:
         raise ValueError("At least one annotated exchange is required")
+    if max_workers < 1:
+        raise ValueError("max_workers must be positive")
 
-    records: list[dict[str, object]] = []
-    usage = TokenUsage()
-    for row in selected.itertuples(index=False):
+    def predict(row: Any) -> tuple[dict[str, object], TokenUsage]:
         result = client.generate_structured(
             system_prompt=_turn_system_prompt(config),
             user_prompt=(
@@ -64,7 +69,6 @@ def predict_turn_moves(
             response_model=TurnMovePrediction,
             metadata={"eval": "ncte", "task": "turn_move"},
         )
-        usage += result.usage
         record = {
             "exchange_id": row.exchange_id,
             "observation_id": row.observation_id,
@@ -75,13 +79,23 @@ def predict_turn_moves(
             "rationale": result.parsed.rationale,
             "latency_ms": result.latency_ms,
         }
-        records.append(record)
         if journal:
             journal.append(
                 "eval.prediction",
                 {"eval": "ncte", "task": "turn_move", **record},
                 latency_ms=result.latency_ms,
             )
+        return record, result.usage
+
+    predictions = _ordered_map(
+        predict,
+        list(selected.itertuples(index=False)),
+        max_workers=max_workers,
+    )
+    records = [record for record, _ in predictions]
+    usage = TokenUsage()
+    for _, item_usage in predictions:
+        usage += item_usage
     return pd.DataFrame.from_records(records), usage
 
 
@@ -93,15 +107,17 @@ def predict_observation_scores(
     config: HarnessConfig,
     journal: JournalWriter | None = None,
     max_observations: int | None = 10,
+    max_workers: int = 1,
 ) -> tuple[pd.DataFrame, TokenUsage]:
     selected_ids = observation_ids
     if max_observations is not None:
         selected_ids = selected_ids[:max_observations]
     if not selected_ids:
         raise ValueError("At least one scored transcript is required")
+    if max_workers < 1:
+        raise ValueError("max_workers must be positive")
 
-    records: list[dict[str, object]] = []
-    usage = TokenUsage()
+    tasks: list[tuple[str, str]] = []
     for observation_id in selected_ids:
         transcript_rows = utterances[utterances["observation_id"] == observation_id]
         transcript = "\n".join(
@@ -109,6 +125,10 @@ def predict_observation_scores(
         )
         if not transcript:
             continue
+        tasks.append((observation_id, transcript))
+
+    def predict(task: tuple[str, str]) -> tuple[dict[str, object], TokenUsage]:
+        observation_id, transcript = task
         result = client.generate_structured(
             system_prompt=_score_system_prompt(config),
             user_prompt=(
@@ -119,7 +139,6 @@ def predict_observation_scores(
             response_model=ObservationScorePrediction,
             metadata={"eval": "ncte", "task": "observation_score"},
         )
-        usage += result.usage
         parsed = result.parsed
         record: dict[str, object] = {
             "observation_id": observation_id,
@@ -133,7 +152,6 @@ def predict_observation_scores(
             "rationale": parsed.rationale,
             "latency_ms": result.latency_ms,
         }
-        records.append(record)
         if journal:
             journal.append(
                 "eval.prediction",
@@ -144,6 +162,13 @@ def predict_observation_scores(
                 },
                 latency_ms=result.latency_ms,
             )
+        return record, result.usage
+
+    predictions = _ordered_map(predict, tasks, max_workers=max_workers)
+    records = [record for record, _ in predictions]
+    usage = TokenUsage()
+    for _, item_usage in predictions:
+        usage += item_usage
     if not records:
         raise ValueError("No observation score predictions were produced")
     output = pd.DataFrame.from_records(records)
@@ -151,6 +176,19 @@ def predict_observation_scores(
     if not expected.issubset(output.columns):
         raise ValueError("Observation predictions are missing required dimensions")
     return output, usage
+
+
+def _ordered_map(
+    function: Callable[[Any], ResultT],
+    values: list[Any],
+    *,
+    max_workers: int,
+) -> list[ResultT]:
+    worker_count = min(max_workers, len(values))
+    if worker_count <= 1:
+        return [function(value) for value in values]
+    with ThreadPoolExecutor(max_workers=worker_count) as executor:
+        return list(executor.map(function, values))
 
 
 def _turn_system_prompt(config: HarnessConfig) -> str:

@@ -4,6 +4,7 @@ import json
 import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+from threading import Lock
 from typing import Any, Generic, Protocol, TypeVar
 
 from jsonschema import Draft202012Validator
@@ -121,6 +122,7 @@ class OpenAIModelClient:
         self.journal = journal
         self.client = client or OpenAI(timeout=config.model_timeout_seconds, max_retries=0)
         self.total_usage = TokenUsage()
+        self._usage_lock = Lock()
 
     def generate_structured(
         self,
@@ -365,7 +367,8 @@ class OpenAIModelClient:
         ) from last_error
 
     def _record_response(self, response: Any, latency_ms: float, usage: TokenUsage) -> None:
-        self.total_usage += usage
+        with self._usage_lock:
+            self.total_usage += usage
         if self.journal:
             response_payload = (
                 response.model_dump(mode="json", warnings=False)

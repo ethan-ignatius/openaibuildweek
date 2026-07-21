@@ -44,6 +44,7 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--pybkt-fits", type=int, default=1)
     parser.add_argument("--skip-pybkt", action="store_true")
+    parser.add_argument("--workers", type=int, default=1)
     parser.add_argument(
         "--memory-mode",
         choices=[mode.value for mode in MemoryMode],
@@ -63,6 +64,8 @@ def main() -> None:
         parser.error("--max-predictions must be positive")
     if arguments.pybkt_fits < 1:
         parser.error("--pybkt-fits must be positive")
+    if arguments.workers < 1:
+        parser.error("--workers must be positive")
 
     session_id = f"assistments-{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}"
     journal = JournalWriter(Path("state/evals/assistments") / f"{session_id}.jsonl", session_id)
@@ -169,6 +172,7 @@ def main() -> None:
         predictor,
         chunk_size=arguments.chunk_size,
         max_predictions=arguments.max_predictions,
+        max_workers=arguments.workers,
     )
     results["Teacher Brain"] = binary_metrics(
         agent_predictions["correct"].tolist(),

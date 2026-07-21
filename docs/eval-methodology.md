@@ -35,7 +35,8 @@ Run the five-student M1 subset:
 .venv/bin/python scripts/run_assistments_eval.py \
   --max-students 5 \
   --memory-mode notes \
-  --pybkt-fits 1
+  --pybkt-fits 1 \
+  --workers 5
 ```
 
 The hackathon M1 path uses one deterministic pyBKT initialization. Use
@@ -90,8 +91,12 @@ Run the ten-transcript M1 subset:
 ```bash
 .venv/bin/python scripts/run_ncte_eval.py \
   --max-transcripts 10 \
-  --condition full
+  --condition full \
+  --workers 5
 ```
+
+`--workers` parallelizes independent students, exchanges, or transcripts. Outcomes
+within a single learner remain chronological, and output rows retain source order.
 
 Turn-level F1 is measured against majority-rater `high_uptake` and
 `focusing_question` labels. Observation-level Spearman correlation is measured after
