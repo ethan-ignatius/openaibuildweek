@@ -75,6 +75,7 @@ const acousticAnnotation = /(?:\[|\()\s*(?:door|music|noise|silence|multiple voi
 const tutorPromptEcho = /\b(?:go ahead(?: with your question)?|ahead with your question|te escucho|adelante con tu pregunta|please (?:state|restate) your question|did not hear (?:a|your) question|did not hear a thing|heard the door open|do you have a question|should we continue|cannot accurately determine)\b/i;
 const questionOpening = /^(?:what|why|how|when|where|which|who|can|could|would|will|do|does|did|is|are|was|were|explain|show|tell|help|qué|que|por qué|por que|cómo|como|cuándo|cuando|dónde|donde|cuál|cual|quién|quien|puede|puedes|explica|explícame|explicame|muéstrame|muestrame|ayúdame|ayudame)\b/i;
 const learningStatement = /\b(?:i (?:do not|don't) understand|i am confused|i'm confused|no entiendo|tengo una pregunta|necesito ayuda)\b/i;
+const classroomRequest = /\b(?:i (?:have|need) to (?:use|go to) (?:the )?(?:bathroom|restroom)|may i (?:use|go to) (?:the )?(?:bathroom|restroom)|necesito ir al baño|puedo ir al baño)\b/i;
 
 /**
  * Keep a called-on listening window open across acoustic captions, garbled IDs,
@@ -98,6 +99,7 @@ export function screenCalledOnUtterance(text: string) {
     trimmed.endsWith("?")
     || questionOpening.test(trimmed)
     || learningStatement.test(trimmed)
+    || classroomRequest.test(trimmed)
   ) {
     return { usable: true, reason: "question_candidate" as const };
   }

@@ -27,6 +27,8 @@ describe("voice turn filtering", () => {
     expect(screenCalledOnUtterance("lightning formed.").usable).toBe(false);
     expect(screenCalledOnUtterance("Where do clouds come from?").usable).toBe(true);
     expect(screenCalledOnUtterance("How is lightning formed?").usable).toBe(true);
+    expect(screenCalledOnUtterance("I have to use the bathroom.").usable).toBe(true);
+    expect(screenCalledOnUtterance("Necesito ir al baño.").usable).toBe(true);
     expect(screenCalledOnUtterance("¿Cómo usan la luz las plantas?").usable).toBe(true);
     expect(screenCalledOnUtterance("I don't understand equivalent fractions").usable).toBe(true);
   });
