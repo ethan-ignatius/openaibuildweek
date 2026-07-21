@@ -18,6 +18,7 @@ class AssistmentsDataset:
     interactions: pd.DataFrame
     source_path: Path
     source_sha256: str
+    source_encoding: str
 
     @property
     def students(self) -> list[str]:
@@ -98,7 +99,7 @@ def load_assistments(
     if require_verified:
         _verify_manifest(source_path, source_sha256, manifest_path)
 
-    frame = pd.read_csv(source_path, low_memory=False)
+    frame, source_encoding = _read_source(source_path)
     columns = {
         canonical: _find_column(frame, aliases)
         for canonical, aliases in _ALIASES.items()
@@ -109,7 +110,6 @@ def load_assistments(
         "problem",
         "skill",
         "correct",
-        "attempt",
         "original",
     )
     missing = [column for column in required if columns[column] is None]
@@ -121,8 +121,10 @@ def load_assistments(
     working = frame.copy()
     original = pd.to_numeric(working[columns["original"]], errors="coerce")
     working = working[original == 1]
-    attempts = pd.to_numeric(working[columns["attempt"]], errors="coerce")
-    working = working[attempts == 1]
+
+    # Each corrected row is a student-problem summary. `correct` is the first-attempt
+    # outcome; `attempt_count` is the total work on that problem and must not be used
+    # as a row filter, or incorrect first attempts would be systematically removed.
 
     canonical_frame = pd.DataFrame(
         {
@@ -179,7 +181,12 @@ def load_assistments(
             "correct",
         ]
     ].reset_index(drop=True)
-    return AssistmentsDataset(canonical_frame, source_path, source_sha256)
+    return AssistmentsDataset(
+        interactions=canonical_frame,
+        source_path=source_path,
+        source_sha256=source_sha256,
+        source_encoding=source_encoding,
+    )
 
 
 def _verify_manifest(
@@ -215,6 +222,23 @@ def _find_column(frame: pd.DataFrame, aliases: tuple[str, ...]) -> str | None:
         if match is not None:
             return match
     return None
+
+
+def _read_source(source_path: Path) -> tuple[pd.DataFrame, str]:
+    for encoding in ("utf-8", "cp1252"):
+        try:
+            return pd.read_csv(
+                source_path,
+                encoding=encoding,
+                low_memory=False,
+            ), encoding
+        except UnicodeDecodeError:
+            continue
+        except (OSError, pd.errors.ParserError) as error:
+            raise AssistmentsDataError(f"Could not read {source_path}: {error}") from error
+    raise AssistmentsDataError(
+        f"Could not decode {source_path} as UTF-8 or Windows-1252"
+    )
 
 
 def _normalized_identifier(value: Any) -> str:

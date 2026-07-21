@@ -7,6 +7,8 @@ import pandas as pd
 import pytest
 
 from packages.evals.assistments.agent import (
+    NextItemPrediction,
+    OpenAIAssistmentsPredictor,
     PredictionOutcome,
     prediction_targets,
     run_prediction_loop,
@@ -18,7 +20,9 @@ from packages.evals.assistments.data import (
     write_verified_manifest,
 )
 from packages.evals.metrics import binary_metrics, spearman_correlation
-from packages.harness.model_client import TokenUsage
+from packages.harness.config import HarnessConfig, MemoryMode
+from packages.harness.learner_memory import LearnerMemory
+from packages.harness.model_client import ModelResult, TokenUsage, ToolRunResult
 
 
 class FixedPredictor:
@@ -28,6 +32,41 @@ class FixedPredictor:
             rationale="Fixture probability",
             usage=TokenUsage(input=3, output=2, total=5),
             latency_ms=12.0,
+        )
+
+
+class FakeAssistmentsClient:
+    def __init__(self) -> None:
+        self.structured_calls: list[dict[str, object]] = []
+        self.tool_calls: list[dict[str, object]] = []
+
+    def generate_structured(self, **kwargs: object) -> ModelResult[NextItemPrediction]:
+        self.structured_calls.append(kwargs)
+        return ModelResult(
+            parsed=NextItemPrediction(
+                probability_correct=0.7,
+                rationale="Fixture estimate",
+            ),
+            usage=TokenUsage(input=10, output=5, total=15),
+            latency_ms=11.0,
+            response_id="prediction-test",
+        )
+
+    def execute_required_tool(self, **kwargs: object) -> ToolRunResult:
+        self.tool_calls.append(kwargs)
+        tool = kwargs["tool"]
+        result = tool.handler(
+            {
+                "student": "assist_fixture",
+                "markdown": LearnerMemory.empty_note("assist_fixture"),
+            }
+        )
+        return ToolRunResult(
+            result=result,
+            usage=TokenUsage(input=4, output=2, total=6),
+            latency_ms=7.0,
+            response_id="memory-test",
+            continuation_input=(),
         )
 
 
@@ -46,7 +85,7 @@ def test_assistments_loader_filters_and_pseudonymizes(tmp_path: Path) -> None:
                     "skill_id": item % 2 + 1,
                     "skill_name": f"skill-{item % 2 + 1}",
                     "correct": item % 2,
-                    "attempt_count": 1,
+                    "attempt_count": 3 if item == 0 else 1,
                     "original": 1,
                 }
             )
@@ -75,6 +114,7 @@ def test_assistments_loader_filters_and_pseudonymizes(tmp_path: Path) -> None:
     )
 
     assert len(dataset.interactions) == 12
+    assert dataset.source_encoding == "utf-8"
     assert len(dataset.students) == 2
     assert all(student.startswith("assist_") for student in dataset.students)
     assert "raw_student_id" not in dataset.interactions.columns
@@ -91,7 +131,7 @@ def test_assistments_loader_requires_verified_manifest(tmp_path: Path) -> None:
         load_assistments(source, min_interactions=2)
 
 
-def test_assistments_loader_requires_first_attempt_filter_columns(tmp_path: Path) -> None:
+def test_assistments_loader_requires_original_problem_column(tmp_path: Path) -> None:
     source = tmp_path / "data.csv"
     source.write_text(
         "order_id,user_id,problem_id,skill_id,correct\n1,u1,p1,s1,1\n",
@@ -100,8 +140,30 @@ def test_assistments_loader_requires_first_attempt_filter_columns(tmp_path: Path
     manifest = tmp_path / "manifest.json"
     write_verified_manifest(source, manifest)
 
-    with pytest.raises(AssistmentsDataError, match="attempt, original"):
+    with pytest.raises(AssistmentsDataError, match="original"):
         load_assistments(source, manifest_path=manifest, min_interactions=2)
+
+
+def test_assistments_loader_records_legacy_windows_encoding(tmp_path: Path) -> None:
+    source = tmp_path / "legacy.csv"
+    source.write_bytes(
+        (
+            "order_id,user_id,problem_id,skill_id,skill_name,correct,original\n"
+            "1,u1,p1,s1,price \u20ac,1,1\n"
+            "2,u1,p2,s1,price \u20ac,0,1\n"
+        ).encode("cp1252")
+    )
+    manifest = tmp_path / "manifest.json"
+    write_verified_manifest(source, manifest)
+
+    dataset = load_assistments(
+        source,
+        manifest_path=manifest,
+        min_interactions=2,
+    )
+
+    assert dataset.source_encoding == "cp1252"
+    assert len(dataset.interactions) == 2
 
 
 def test_prediction_loop_uses_chronological_chunk_boundaries() -> None:
@@ -135,6 +197,65 @@ def test_prediction_loop_uses_chronological_chunk_boundaries() -> None:
     assert targets["sequence_index"].tolist() == [10, 20]
     assert usage == TokenUsage(input=6, output=4, total=10)
 
+    capped_predictions, capped_usage = run_prediction_loop(
+        interactions,
+        ["assist_fixture"],
+        FixedPredictor(),
+        chunk_size=10,
+        max_predictions=1,
+    )
+    assert capped_predictions["sequence_index"].tolist() == [10]
+    assert capped_usage == TokenUsage(input=3, output=2, total=5)
+
+
+def test_full_context_is_raw_model_comparator_without_memory_write(
+    tmp_path: Path,
+) -> None:
+    client = FakeAssistmentsClient()
+    predictor = OpenAIAssistmentsPredictor(
+        config=HarnessConfig(memory_mode=MemoryMode.FULL_CONTEXT),
+        client=client,
+        memory=LearnerMemory(tmp_path),
+    )
+    history = [{"skill_id": "s1", "correct": 1}]
+
+    outcome = predictor.predict_after_chunk(
+        student="assist_fixture",
+        new_chunk=history,
+        observed_history=history,
+        next_skill_id="s2",
+        next_skill_name="fractions",
+    )
+
+    assert client.tool_calls == []
+    assert '"skill_id":"s1"' in str(client.structured_calls[0]["user_prompt"])
+    assert outcome.usage == TokenUsage(input=10, output=5, total=15)
+
+
+def test_notes_condition_updates_and_reads_persistent_memory(tmp_path: Path) -> None:
+    client = FakeAssistmentsClient()
+    memory = LearnerMemory(tmp_path)
+    predictor = OpenAIAssistmentsPredictor(
+        config=HarnessConfig(memory_mode=MemoryMode.NOTES),
+        client=client,
+        memory=memory,
+    )
+
+    outcome = predictor.predict_after_chunk(
+        student="assist_fixture",
+        new_chunk=[{"skill_id": "s1", "correct": 0}],
+        observed_history=[{"skill_id": "s1", "correct": 0}],
+        next_skill_id="s1",
+        next_skill_name="fractions",
+    )
+
+    assert len(client.tool_calls) == 1
+    assert "# Learner: assist_fixture" in str(
+        client.structured_calls[0]["user_prompt"]
+    )
+    assert memory.read("assist_fixture").startswith("# Learner: assist_fixture")
+    assert outcome.usage == TokenUsage(input=14, output=7, total=21)
+
 
 def test_metrics_match_known_values() -> None:
     metrics = binary_metrics([0, 1, 0, 1], [0.1, 0.9, 0.2, 0.8])
@@ -158,12 +279,16 @@ def test_pybkt_baseline_fits_and_returns_finite_aligned_predictions() -> None:
             for item in range(30)
         ]
     )
-    training = interactions[interactions["student_id"].isin([f"assist_{i}" for i in range(8)])]
-    held_out = interactions[interactions["student_id"].isin(["assist_8", "assist_9"])]
+    shuffled = interactions.sample(frac=1, random_state=13)
+    training = shuffled[
+        shuffled["student_id"].isin([f"assist_{i}" for i in range(8)])
+    ]
+    held_out = shuffled[shuffled["student_id"].isin(["assist_8", "assist_9"])]
 
     result = fit_predict_pybkt(training, held_out, seed=9)
 
     assert len(result.predictions) == len(held_out)
+    assert result.fallback_count == 0
     assert np.isfinite(result.predictions["probability"]).all()
     assert result.predictions["probability"].between(0, 1).all()
     prediction_keys = result.predictions[["student_id", "sequence_index"]]

@@ -20,19 +20,30 @@ from packages.harness.learner_memory import LearnerMemory
 from packages.harness.model_client import OpenAIModelClient, TokenUsage
 
 
+def default_source() -> Path:
+    candidates = (
+        Path("data/assistments/skill_builder_data_corrected.csv"),
+        Path("data/assistments/skill_builder_data_corrected_collapsed.csv"),
+    )
+    return next((path for path in candidates if path.is_file()), candidates[0])
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run the ASSISTments calibration eval.")
     parser.add_argument(
         "--source",
         type=Path,
-        default=Path("data/assistments/skill_builder_data_corrected.csv"),
+        default=default_source(),
     )
     parser.add_argument(
         "--manifest", type=Path, default=Path("data/assistments/manifest.json")
     )
     parser.add_argument("--chunk-size", type=int, default=10)
     parser.add_argument("--max-students", type=int, default=5)
+    parser.add_argument("--max-predictions", type=int)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--pybkt-fits", type=int, default=1)
+    parser.add_argument("--skip-pybkt", action="store_true")
     parser.add_argument(
         "--memory-mode",
         choices=[mode.value for mode in MemoryMode],
@@ -44,6 +55,14 @@ def main() -> None:
         default=Path("packages/evals/assistments/report.md"),
     )
     arguments = parser.parse_args()
+    if arguments.chunk_size < 1:
+        parser.error("--chunk-size must be positive")
+    if arguments.max_students < 1:
+        parser.error("--max-students must be positive")
+    if arguments.max_predictions is not None and arguments.max_predictions < 1:
+        parser.error("--max-predictions must be positive")
+    if arguments.pybkt_fits < 1:
+        parser.error("--pybkt-fits must be positive")
 
     session_id = f"assistments-{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}"
     journal = JournalWriter(Path("state/evals/assistments") / f"{session_id}.jsonl", session_id)
@@ -75,42 +94,59 @@ def main() -> None:
     interactions = dataset.interactions
     training = interactions[interactions["student_id"].isin(training_students)]
     held_out = interactions[interactions["student_id"].isin(held_out_students)]
-    pybkt = fit_predict_pybkt(training, held_out, seed=arguments.seed)
+    selected_students = held_out_students[: arguments.max_students]
+    evaluation_held_out = held_out[
+        held_out["student_id"].isin(selected_students)
+    ]
+    evaluation_skills = set(evaluation_held_out["skill_id"])
+    evaluation_training = training[training["skill_id"].isin(evaluation_skills)]
     targets = prediction_targets(
         interactions,
-        held_out_students,
+        selected_students,
         chunk_size=arguments.chunk_size,
-        max_students=arguments.max_students,
+        max_predictions=arguments.max_predictions,
     )
-    pybkt_targets = targets.merge(
-        pybkt.predictions,
-        on=["student_id", "sequence_index"],
-        how="inner",
-        validate="one_to_one",
-    )
-    results = {
-        "pyBKT": binary_metrics(
+    results = {}
+    pybkt_fallback_count = 0
+    if not arguments.skip_pybkt:
+        pybkt = fit_predict_pybkt(
+            evaluation_training,
+            evaluation_held_out,
+            seed=arguments.seed,
+            num_fits=arguments.pybkt_fits,
+        )
+        pybkt_targets = targets.merge(
+            pybkt.predictions,
+            on=["student_id", "sequence_index"],
+            how="inner",
+            validate="one_to_one",
+        )
+        results["pyBKT"] = binary_metrics(
             pybkt_targets["correct"].tolist(),
             pybkt_targets["probability"].tolist(),
         )
-    }
+        pybkt_fallback_count = pybkt.fallback_count
 
     if not os.getenv("OPENAI_API_KEY"):
         detail = (
-            "The external dataset loaded and pyBKT ran, but OPENAI_API_KEY is not set; "
+            "The external dataset loaded"
+            f"{' and pyBKT ran' if results else ''}, but OPENAI_API_KEY is not set; "
             "the agent condition was not executed and M1 is not complete."
         )
-        journal.append("eval.metric", {"system": "pyBKT", **results["pyBKT"].as_dict()})
+        for system, metrics in results.items():
+            journal.append("eval.metric", {"system": system, **metrics.as_dict()})
         journal.append("session.ended", {"status": "unavailable", "reason": detail})
         write_assistments_report(
             arguments.report,
             status="PARTIAL",
             status_detail=detail,
             source_sha256=dataset.source_sha256,
+            source_encoding=dataset.source_encoding,
             eligible_students=len(dataset.students),
             interactions=len(interactions),
             results=results,
-            pybkt_fallback_count=pybkt.fallback_count,
+            pybkt_fallback_count=pybkt_fallback_count,
+            pybkt_num_fits=None if arguments.skip_pybkt else arguments.pybkt_fits,
         )
         raise SystemExit(detail)
 
@@ -129,10 +165,10 @@ def main() -> None:
     )
     agent_predictions, usage = run_prediction_loop(
         interactions,
-        held_out_students,
+        selected_students,
         predictor,
         chunk_size=arguments.chunk_size,
-        max_students=arguments.max_students,
+        max_predictions=arguments.max_predictions,
     )
     results["Teacher Brain"] = binary_metrics(
         agent_predictions["correct"].tolist(),
@@ -155,12 +191,14 @@ def main() -> None:
             "external ASSISTments rows."
         ),
         source_sha256=dataset.source_sha256,
+        source_encoding=dataset.source_encoding,
         eligible_students=len(dataset.students),
         interactions=len(interactions),
         results=results,
         model=config.model,
         usage=usage,
-        pybkt_fallback_count=pybkt.fallback_count,
+        pybkt_fallback_count=pybkt_fallback_count,
+        pybkt_num_fits=None if arguments.skip_pybkt else arguments.pybkt_fits,
     )
 
 

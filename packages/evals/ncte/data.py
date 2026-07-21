@@ -38,7 +38,11 @@ def load_ncte(data_directory: Path) -> NCTEDataset:
         "paired_annotations.csv",
         "paired_annotations_release.csv",
     )
-    utterances_path = _required_file(data_directory, "single_utterances.csv")
+    utterances_path = _required_file(
+        data_directory,
+        "single_utterances.csv",
+        "ncte_single_utterances.csv",
+    )
     class_path = _required_file(data_directory, "class_data.csv")
     mqi_path = _required_file(data_directory, "mqi_data.csv")
 

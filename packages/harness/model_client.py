@@ -368,7 +368,7 @@ class OpenAIModelClient:
         self.total_usage += usage
         if self.journal:
             response_payload = (
-                response.model_dump(mode="json")
+                response.model_dump(mode="json", warnings=False)
                 if hasattr(response, "model_dump")
                 else {"response": repr(response)}
             )

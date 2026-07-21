@@ -14,12 +14,14 @@ def write_assistments_report(
     status: str,
     status_detail: str,
     source_sha256: str | None = None,
+    source_encoding: str | None = None,
     eligible_students: int | None = None,
     interactions: int | None = None,
     results: Mapping[str, BinaryMetrics] | None = None,
     model: str = "gpt-5.6",
     usage: TokenUsage = TokenUsage(),
     pybkt_fallback_count: int = 0,
+    pybkt_num_fits: int | None = None,
 ) -> None:
     cost = estimate_cost(model, usage)
     lines = [
@@ -54,22 +56,29 @@ def write_assistments_report(
             f"- Total tokens processed: **{usage.total:,}**",
             f"- Estimated API cost: **{_cost_text(cost.total_usd)}**",
             f"- pyBKT non-finite fallbacks: **{pybkt_fallback_count:,}**",
+            f"- pyBKT random initializations: **{_optional_count(pybkt_num_fits)}**",
             f"- Eligible students: **{_optional_count(eligible_students)}**",
             f"- Filtered interactions: **{_optional_count(interactions)}**",
             f"- Source SHA-256: `{source_sha256 or 'N/A'}`",
+            f"- Source encoding: `{source_encoding or 'N/A'}`",
             "",
             "## Method",
             "",
             "The loader uses the corrected/deduplicated ASSISTments 2009-10 "
-            "skill-builder release, retains first attempts on original problems, drops "
-            "missing skill IDs, and selects students with at least 80 filtered "
-            "interactions. Student IDs are converted to stable pseudonyms before any "
+            "skill-builder release, uses its `correct` first-attempt outcome on original "
+            "problems, drops missing skill IDs, and selects students with at least 80 "
+            "filtered interactions. Student IDs are converted to stable pseudonyms before any "
             "notes or journals are written. Held-out students are split deterministically.",
             "",
             "After each chronological chunk, the notes condition updates a Markdown "
             "learner model without seeing the next item. The probability request receives "
             "only that note and the next skill tag. Full-context and no-memory conditions "
             "use the same prediction points.",
+            "",
+            "The pyBKT adapter preserves chronological student-skill sequences and "
+            "activates the package's serial E-step through a documented pyBKT 1.4.x "
+            "import compatibility path. Non-finite outputs are counted and reported; "
+            "they are never silently dropped.",
             "",
             "## Contamination Note",
             "",

@@ -10,27 +10,45 @@ Place the corrected and deduplicated ASSISTments 2009-10 skill-builder file at:
 
 ```text
 data/assistments/skill_builder_data_corrected.csv
+# or the official download name:
+data/assistments/skill_builder_data_corrected_collapsed.csv
 ```
 
 Record its explicit provenance acknowledgement and checksum:
 
 ```bash
 .venv/bin/python scripts/prepare_assistments.py \
-  data/assistments/skill_builder_data_corrected.csv \
+  data/assistments/skill_builder_data_corrected_collapsed.csv \
   --confirm-corrected-deduplicated
 ```
 
-The loader verifies that manifest on every run. It requires `original` and
-`attempt_count` columns, retains only original problems and first attempts, drops
-missing skills, deduplicates student/problem rows chronologically, and keeps students
-with at least 80 interactions. Raw student IDs are replaced with stable pseudonyms.
+The loader verifies that manifest on every run. It retains original problems and uses
+the corrected release's `correct` field as the first-attempt outcome. It does not
+filter on `attempt_count`, which is the total number of attempts and would introduce
+outcome bias. It drops missing skills, deduplicates student/problem rows
+chronologically, and keeps students with at least 80 interactions. Raw student IDs
+are replaced with stable pseudonyms.
 
 Run the five-student M1 subset:
 
 ```bash
 .venv/bin/python scripts/run_assistments_eval.py \
   --max-students 5 \
-  --memory-mode notes
+  --memory-mode notes \
+  --pybkt-fits 1
+```
+
+The hackathon M1 path uses one deterministic pyBKT initialization. Use
+`--pybkt-fits 5` for the scaled run, preferably with pyBKT's compiled backend.
+
+Before a scaled run, exercise one complete note-update/prediction cycle without
+refitting the baseline:
+
+```bash
+.venv/bin/python scripts/run_assistments_eval.py \
+  --max-students 1 \
+  --max-predictions 1 \
+  --skip-pybkt
 ```
 
 After each chunk, the note update call cannot see the next item. The probability call
@@ -38,13 +56,26 @@ receives the saved note and only the next skill tag. AUC and Brier score use the
 out real response. pyBKT is trained on training students and evaluated at the same
 prediction points.
 
+The memory conditions separate three claims:
+
+- `notes` is the Teacher Brain harness condition. GPT-5.6 maintains a compressed,
+  persistent learner model and predicts from that note.
+- `full_context` is the fair raw-model comparator. The same GPT-5.6 receives the same
+  observed history directly, without learner-memory tools or a note-update call.
+- `none` is the no-memory ablation. It receives neither history nor notes and is not
+  used as the headline "bare model" comparison.
+
+All conditions receive the same next-item skill tag and never receive the held-out
+response. Report harness lift as `notes` versus `full_context`; report `none`
+separately as the memory-ablation endpoint.
+
 ## NCTE Tier 1
 
 Each dataset user must request transcript access through the
 [NCTE form](https://forms.gle/1yWybvsjciqL8Y9p8). Place these files under `data/ncte/`:
 
 ```text
-single_utterances.csv
+single_utterances.csv (the downloaded file may be named ncte_single_utterances.csv)
 paired_annotations.csv
 class_data.csv
 mqi_data.csv

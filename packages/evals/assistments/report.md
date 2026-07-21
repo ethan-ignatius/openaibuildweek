@@ -1,14 +1,15 @@
 # ASSISTments Long-Horizon Calibration
 
-**Status: UNAVAILABLE**
+**Status: PARTIAL**
 
-ASSISTments file not found: data/assistments/skill_builder_data_corrected.csv
+The external dataset and pyBKT baseline are complete. A bounded live API smoke passed;
+the five-student Teacher Brain condition is still pending, so M1 is not complete.
 
 ## Results
 
 | System | Predictions | AUC | Brier | F1 @ 0.5 |
 | --- | ---: | ---: | ---: | ---: |
-| Not run | 0 | N/A | N/A | N/A |
+| pyBKT | 159 | 0.7910 | 0.1911 | 0.7834 |
 
 ## Run Accounting
 
@@ -18,15 +19,19 @@ ASSISTments file not found: data/assistments/skill_builder_data_corrected.csv
 - Total tokens processed: **0**
 - Estimated API cost: **$0.0000**
 - pyBKT non-finite fallbacks: **0**
-- Eligible students: **N/A**
-- Filtered interactions: **N/A**
-- Source SHA-256: `N/A`
+- pyBKT random initializations: **1**
+- Eligible students: **815**
+- Filtered interactions: **189,826**
+- Source SHA-256: `162ef8d2d28bcbfea6591a282994062bd8d5eaa00636544292a0d268dca6e5da`
+- Source encoding: `cp1252`
 
 ## Method
 
-The loader uses the corrected/deduplicated ASSISTments 2009-10 skill-builder release, retains first attempts on original problems, drops missing skill IDs, and selects students with at least 80 filtered interactions. Student IDs are converted to stable pseudonyms before any notes or journals are written. Held-out students are split deterministically.
+The loader uses the corrected/deduplicated ASSISTments 2009-10 skill-builder release, uses its `correct` first-attempt outcome on original problems, drops missing skill IDs, and selects students with at least 80 filtered interactions. Student IDs are converted to stable pseudonyms before any notes or journals are written. Held-out students are split deterministically.
 
 After each chronological chunk, the notes condition updates a Markdown learner model without seeing the next item. The probability request receives only that note and the next skill tag. Full-context and no-memory conditions use the same prediction points.
+
+The pyBKT adapter preserves chronological student-skill sequences and activates the package's serial E-step through a documented pyBKT 1.4.x import compatibility path. Non-finite outputs are counted and reported; they are never silently dropped.
 
 ## Contamination Note
 

@@ -49,7 +49,7 @@ def redact(value: Any) -> Any:
     if value is None or isinstance(value, (bool, int, float)):
         return value
     if hasattr(value, "model_dump"):
-        return redact(value.model_dump(mode="json"))
+        return redact(value.model_dump(mode="json", warnings=False))
     return repr(value)
 
 

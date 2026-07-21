@@ -82,7 +82,7 @@ class OpenAIAssistmentsPredictor:
                 },
             )
 
-        if self.config.memory_mode != MemoryMode.NONE:
+        if self.config.memory_mode == MemoryMode.NOTES:
             current_note = self.memory.read(student)
             tool_run = self.client.execute_required_tool(
                 system_prompt=_memory_system_prompt(student),
@@ -148,9 +148,12 @@ def run_prediction_loop(
     *,
     chunk_size: int = 10,
     max_students: int | None = None,
+    max_predictions: int | None = None,
 ) -> tuple[pd.DataFrame, TokenUsage]:
     if chunk_size < 1:
         raise ValueError("chunk_size must be positive")
+    if max_predictions is not None and max_predictions < 1:
+        raise ValueError("max_predictions must be positive")
     selected_students = list(held_out_students)
     if max_students is not None:
         selected_students = selected_students[:max_students]
@@ -163,6 +166,8 @@ def run_prediction_loop(
         )
         observations = student_rows.to_dict(orient="records")
         for boundary in range(chunk_size, len(observations), chunk_size):
+            if max_predictions is not None and len(records) >= max_predictions:
+                break
             new_chunk = observations[boundary - chunk_size : boundary]
             history = observations[:boundary]
             next_item = observations[boundary]
@@ -189,6 +194,8 @@ def run_prediction_loop(
                     "model": "agent",
                 }
             )
+        if max_predictions is not None and len(records) >= max_predictions:
+            break
     if not records:
         raise ValueError("No prediction points were produced for the selected students")
     return pd.DataFrame.from_records(records), total_usage
@@ -200,6 +207,7 @@ def prediction_targets(
     *,
     chunk_size: int,
     max_students: int | None = None,
+    max_predictions: int | None = None,
 ) -> pd.DataFrame:
     selected_students = list(held_out_students)
     if max_students is not None:
@@ -210,12 +218,16 @@ def prediction_targets(
             "sequence_index", kind="stable"
         )
         for boundary in range(chunk_size, len(rows), chunk_size):
+            if max_predictions is not None and len(targets) >= max_predictions:
+                break
             targets.append(
                 {
                     "student_id": student,
                     "sequence_index": int(rows.iloc[boundary]["sequence_index"]),
                 }
             )
+        if max_predictions is not None and len(targets) >= max_predictions:
+            break
     return pd.DataFrame.from_records(targets)
 
 
