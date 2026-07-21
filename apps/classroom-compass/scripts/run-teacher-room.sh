@@ -22,7 +22,7 @@ if [ ! -x "$tsx_bin" ]; then
   exit 2
 fi
 
-camera_index=${CC_CAMERA_INDEX:-0}
+camera_index=${CC_CAMERA_INDEX:-1}
 case "$camera_index" in
   *[!0-9]*) echo "CC_CAMERA_INDEX must be a non-negative integer." >&2; exit 2 ;;
 esac

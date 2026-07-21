@@ -243,7 +243,7 @@ Open `http://localhost:3000/board` on the projector. The video stays local and i
 shown only in the RTMPose diagnostic window; the browser intentionally receives
 validated diagrams rather than camera frames. The room command defaults to system
 speech, Teacher Brain, a 30-second hand-raise listening gate, and left/right/center
-seat pseudonyms. It uses camera index `0` by default; set `CC_CAMERA_INDEX` when an
+seat pseudonyms. It uses camera index `1` by default; set `CC_CAMERA_INDEX` when an
 external or virtual camera is the intended source. Override other defaults with the documented `CC_*` environment
 variables. Classroom Compass also retains its local Ollama mode and deterministic
 reviewed tools under [`apps/classroom-compass/`](apps/classroom-compass/).
