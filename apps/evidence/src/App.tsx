@@ -6,6 +6,7 @@ import {
   ExternalLink,
   FileCheck2,
   History,
+  MessageCircleQuestion,
   Printer,
   ShieldCheck,
   X,
@@ -62,24 +63,44 @@ function AucChart() {
       <figcaption>
         <span className="section-index">01</span>
         <div>
-          <p className="section-kicker">Primary externally anchored result</p>
-          <h2 id="auc-chart-title">Future-answer discrimination</h2>
+          <p className="section-kicker">Primary result: AUC</p>
+          <h2 id="auc-chart-title">Which system ranked future answers best?</h2>
         </div>
       </figcaption>
-      <p className="chart-intro">
-        After each real chronological learner segment, the next response stayed hidden.
-        Higher AUC means the system ranked likely success more accurately.
-      </p>
+      <div className="auc-explainer">
+        <div className="auc-explainer-title">
+          <MessageCircleQuestion aria-hidden="true" size={20} />
+          <strong>AUC, in plain English</strong>
+        </div>
+        <p>
+          Pick one future answer that was correct and one that was wrong. AUC asks:
+          did the system give the correct answer a higher score?
+        </p>
+        <div className="auc-landmarks" aria-label="AUC score guide">
+          <span>
+            <strong>50%</strong>
+            Guessing
+          </span>
+          <span className="teacher-landmark">
+            <strong>71.43%</strong>
+            Teacher Brain
+          </span>
+          <span>
+            <strong>100%</strong>
+            Perfect
+          </span>
+        </div>
+      </div>
       <div
         className="bar-chart auc-chart"
         role="img"
-        aria-label="AUC: Stateless GPT-5.6 0.6357, GPT-5.6 full history 0.7000, Teacher Brain notes 0.7143"
+        aria-label="AUC ranking score: Stateless GPT-5.6 63.57 percent, GPT-5.6 full history 70 percent, Teacher Brain notes 71.43 percent"
       >
         {memoryConditions.map((condition) => (
           <div className="bar-row" key={condition.id}>
             <div className="bar-heading">
               <span>{condition.label}</span>
-              <strong>{decimal(condition.auc)}</strong>
+              <strong>{(condition.auc * 100).toFixed(2)}%</strong>
             </div>
             <div className="bar-track" aria-hidden="true">
               <span
@@ -90,9 +111,9 @@ function AucChart() {
           </div>
         ))}
         <div className="chart-scale" aria-hidden="true">
-          <span>0</span>
-          <span>0.5</span>
-          <span>1.0</span>
+          <span>0%</span>
+          <span>50%</span>
+          <span>100%</span>
         </div>
       </div>
       <div className="chart-callout">
@@ -102,8 +123,8 @@ function AucChart() {
             +{percentPoints(evaluationSummary.notesVsStatelessAucLift)} over stateless
           </strong>
           <span>
-            +{percentPoints(evaluationSummary.notesVsHistoryAucLift)} over the stronger
-            full-history comparator.
+            That means Teacher Brain was better at putting future correct answers ahead
+            of future wrong answers.
           </span>
         </p>
       </div>
@@ -176,7 +197,7 @@ function ConditionTable() {
             <th scope="col">Available evidence</th>
             <th scope="col">Persistent state</th>
             <th scope="col">Validated tool commit</th>
-            <th scope="col">AUC</th>
+            <th scope="col">AUC (higher is better)</th>
             <th scope="col">Brier</th>
           </tr>
         </thead>
@@ -305,12 +326,12 @@ export function App() {
           </div>
           <div className="headline-grid" aria-label="Headline evaluation findings">
             <EvidenceMetric
-              label="AUC lift over stateless"
+              label="Better at ranking future answers than stateless GPT-5.6"
               tone="lime"
               value="+7.86 pts"
             />
             <EvidenceMetric
-              label="AUC lift over full history"
+              label="Better than GPT-5.6 with the full learner history"
               tone="blue"
               value="+1.43 pts"
             />
@@ -373,8 +394,9 @@ export function App() {
           <div className="tradeoff-layout">
             <div className="tradeoff-copy">
               <p>
-                Teacher Brain&apos;s AUC was highest. Its Brier score, which measures
-                probability calibration, was <strong>0.1723</strong>: better than stateless
+                Teacher Brain&apos;s answer-ranking score (AUC) was highest. Its Brier
+                score asks whether confidence numbers match what really happened; lower is
+                better. Teacher Brain scored <strong>0.1723</strong>: better than stateless
                 GPT-5.6 at <strong>0.1922</strong>, but behind full history at{" "}
                 <strong>0.1662</strong>.
               </p>

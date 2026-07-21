@@ -16,6 +16,12 @@ describe("Teacher Brain evidence brief", () => {
     ).toBeInTheDocument();
     expect(screen.getByText("+7.86 pts")).toBeInTheDocument();
     expect(screen.getByText("35.4%")).toBeInTheDocument();
+    expect(screen.getByText("AUC, in plain English")).toBeInTheDocument();
+    expect(
+      screen.getByText(/Pick one future answer that was correct and one that was wrong/),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Guessing")).toBeInTheDocument();
+    expect(screen.getByText("Perfect")).toBeInTheDocument();
     expect(
       screen.getByRole("heading", { name: "NCTE did not show harness lift" }),
     ).toBeInTheDocument();

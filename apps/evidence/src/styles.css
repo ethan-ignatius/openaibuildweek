@@ -346,6 +346,71 @@ h2 {
   line-height: 1.55;
 }
 
+.auc-explainer {
+  margin: 22px 0 30px 51px;
+  padding: 16px;
+  border: 1px solid #c9d6cf;
+  border-radius: 4px;
+  background: #f7faf8;
+}
+
+.auc-explainer-title {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--green);
+  font-size: 13px;
+}
+
+.auc-explainer-title svg {
+  color: var(--green-bright);
+}
+
+.auc-explainer > p {
+  margin: 11px 0 14px;
+  color: #53615a;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.auc-landmarks {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border-top: 1px solid #d9e1dd;
+}
+
+.auc-landmarks span {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+  padding-top: 11px;
+  color: #6b7771;
+  font-size: 10px;
+}
+
+.auc-landmarks span:nth-child(2) {
+  align-items: center;
+  text-align: center;
+}
+
+.auc-landmarks span:last-child {
+  align-items: flex-end;
+  text-align: right;
+}
+
+.auc-landmarks strong {
+  color: #34423b;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+
+.auc-landmarks .teacher-landmark,
+.auc-landmarks .teacher-landmark strong {
+  color: var(--green-bright);
+  font-weight: 850;
+}
+
 .bar-chart {
   margin-left: 51px;
 }
@@ -925,6 +990,7 @@ footer span:first-child {
   }
 
   .chart-intro,
+  .auc-explainer,
   .bar-chart,
   .chart-callout {
     margin-left: 45px;
