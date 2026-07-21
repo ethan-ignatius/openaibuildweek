@@ -5,7 +5,7 @@ import json
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Annotated, Any, Literal, Protocol, TypeAlias
+from typing import Any, Literal, Protocol, TypeAlias
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -54,7 +54,10 @@ class WriteMathAction(StrictModel):
 class PlotFunctionAction(StrictModel):
     type: Literal["board.plot_function"]
     expr: str = Field(min_length=1, max_length=1000)
-    domain: tuple[float, float]
+    # OpenAI structured outputs requires every array schema to declare `items`.
+    # Pydantic models a tuple with prefixItems only, so use a fixed-length list
+    # to retain the [min, max] contract while generating a supported schema.
+    domain: list[float] = Field(min_length=2, max_length=2)
     element_id: str = Field(min_length=1, max_length=128, pattern=_ELEMENT_ID)
 
 
@@ -125,7 +128,7 @@ class ShowSlideAction(StrictModel):
     slide_ref: str = Field(min_length=1, max_length=2048)
 
 
-BoardAction = Annotated[
+BoardAction: TypeAlias = (
     WriteTextAction
     | WriteMathAction
     | PlotFunctionAction
@@ -135,9 +138,8 @@ BoardAction = Annotated[
     | HighlightAction
     | UnhighlightAction
     | ClearAction
-    | ShowSlideAction,
-    Field(discriminator="type"),
-]
+    | ShowSlideAction
+)
 
 
 class NarrationSegment(StrictModel):

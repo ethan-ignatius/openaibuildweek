@@ -95,7 +95,9 @@ async function runTeacherBrainDemo() {
   process.stdout.write("\nTeacher Brain demo complete\n");
   process.stdout.write(`Opening/resume transitions: ${record.audit.filter((entry) => ["lesson_started", "lesson_resumed"].includes(entry.action)).length}\n`);
   process.stdout.write(`Student interruptions: ${record.events.filter((event) => event.kind === "question_transcribed").length}\n`);
-  process.stdout.write(`Public board scenes: ${record.commands.filter((item) => item.toolId === "excalidraw.renderScene").length}\n`);
+  process.stdout.write(`Public board scenes: ${record.commands.filter((item) =>
+    item.toolId === "excalidraw.renderScene" || item.toolId === "visual-stage.renderScene"
+  ).length}\n`);
   process.stdout.write(`Raw media retained: ${record.rawMediaRetainedBytes} bytes\n`);
   process.stdout.write(`Local session record: ${store.filePath}\n`);
   if (apiSession) {
