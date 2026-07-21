@@ -68,6 +68,7 @@ apps/
   classroom-compass/  Camera, speech, headless room loop, and Excalidraw projector
   dashboard/          React operator dashboard
   board/              M0 schema-board compatibility projector
+  evidence/           Presentation-ready controlled evaluation brief
 packages/
   harness/            Agent tools, memory, orchestration, and journaling
   perception/         Pose, seat regions, hand-raise FSM, board capture
@@ -113,6 +114,19 @@ not show lift over bare GPT-5.6 on human move matching. Those labels record what
 teacher did rather than all pedagogically valid responses, so the result is retained
 as an honest limitation rather than presented as teaching-quality evidence. See
 [`packages/evals/ncte/arena-report.md`](packages/evals/ncte/arena-report.md).
+
+### Evidence Page
+
+The presentation page turns both controlled reports into an auditable visual brief.
+It leads with learner-memory lift, shows the exact comparator conditions and token
+accounting, retains the NCTE negative result, links to source reports, and includes a
+print layout.
+
+```bash
+npm run dev:evidence
+```
+
+Open `http://127.0.0.1:5176`.
 
 ## Ethics and Privacy
 
