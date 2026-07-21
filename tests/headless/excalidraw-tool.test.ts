@@ -57,6 +57,9 @@ describe("bounded Excalidraw whiteboard tool", () => {
       spokenAnswer: "Two plus twenty-four equals twenty-six.",
       visual: {
         title: "Adding whole numbers",
+        kind: "groups",
+        keyIdea: "Multiplication and addition can both combine equal groups.",
+        example: "Imagine 2 counters beside 24 more counters.",
         nodes: [
           { label: "2", detail: "First quantity" },
           { label: "24", detail: "Second quantity" },
@@ -71,18 +74,20 @@ describe("bounded Excalidraw whiteboard tool", () => {
       provider: "fixture",
       model: "fixture",
     }, 1);
-    const panel = scene.elements.find((element) => element.id === "answer-panel");
-    expect(panel).toMatchObject({ type: "rectangle", width: 1310 });
-    expect("height" in panel! && panel.height).toBeLessThanOrEqual(260);
+    const panel = scene.elements.find((element) => element.id === "big-idea-panel");
+    expect(panel).toMatchObject({ type: "rectangle", width: 830, height: 180, fillStyle: "solid" });
+    expect(scene.elements.find((element) => element.id === "example-panel")).toMatchObject({ type: "rectangle", width: 440 });
     const concepts = scene.elements.filter((element) => /^concept-\d$/.test(element.id));
     expect(concepts).toHaveLength(3);
     expect(concepts.every((element) => element.type === "rectangle")).toBe(true);
     expect(concepts.map((element) => element.x)).toEqual([...concepts.map((element) => element.x)].sort((a, b) => a - b));
-    const connectors = scene.elements.filter((element) => element.id.startsWith("connection-"));
+    const connectors = scene.elements.filter((element) => /^connection-\d+$/.test(element.id));
     expect(connectors.every((element) => element.type === "arrow" && element.points.length === 2)).toBe(true);
     expect(connectors.every((element) => element.type === "arrow" && Math.abs(element.points[1][0]) < 100)).toBe(true);
-    expect(connectors.map((element) => "label" in element ? element.label : undefined)).toEqual(["+", "="]);
-    expect(scene.elements.find((element) => element.id === "equation-callout")).toMatchObject({ type: "text", text: "2 + 24 = 26" });
+    expect(scene.elements.filter((element) => /^connection-\d+-label$/.test(element.id)).map((element) => "text" in element ? element.text : undefined)).toEqual(["+", "="]);
+    expect(scene.elements.find((element) => element.id === "example-copy")).toMatchObject({ type: "text" });
+    expect(JSON.stringify(scene.elements.find((element) => element.id === "example-copy"))).toContain("2 + 24 = 26");
+    expect(scene.elements.filter((element) => element.id.startsWith("concept-") && element.type === "rectangle").every((element) => "fillStyle" in element && element.fillStyle === "solid")).toBe(true);
   });
 
   it("rejects duplicate IDs and out-of-bounds agent commands", () => {

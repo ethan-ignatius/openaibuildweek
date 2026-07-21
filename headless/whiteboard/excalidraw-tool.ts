@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { TutorTurn } from "../reasoning/tutor-provider";
+import { visualSymbolSchema, type ComprehensionCheck, type TutorAssessment, type TutorTurn } from "../reasoning/tutor-provider";
 
 const coordinate = z.number().finite().min(-4_000).max(4_000);
 const dimension = z.number().finite().positive().max(4_000);
@@ -23,6 +23,7 @@ const boxElementSchema = z.object({
   height: dimension,
   fillStyle: z.enum(["solid", "hachure", "cross-hatch"]).optional(),
   label: z.string().max(120).optional(),
+  symbol: visualSymbolSchema.optional(),
 });
 
 const textElementSchema = z.object({
@@ -108,6 +109,17 @@ const palette = {
   paper: "#fffdf7",
   muted: "#647067",
   amber: "#9a5b16",
+  navy: "#1d2b53",
+  blue: "#2f5fb3",
+  blueSoft: "#e8f1ff",
+  purple: "#6f4cc3",
+  purpleSoft: "#efe9ff",
+  coral: "#b9473d",
+  coralSoft: "#ffe9e4",
+  sun: "#8a5a00",
+  sunSoft: "#fff1b8",
+  teal: "#14766f",
+  tealSoft: "#def6f2",
 };
 
 function text(id: string, value: string, x: number, y: number, fontSize = 28, strokeColor = palette.ink): BoardElement {
@@ -127,6 +139,29 @@ function wrapText(value: string, lineLength = 58, maxLines = 12) {
   return lines.join("\n");
 }
 
+function inferVisualSymbol(value: string, fallback: z.infer<typeof visualSymbolSchema> = "idea"): z.infer<typeof visualSymbolSchema> {
+  const content = value.toLocaleLowerCase();
+  if (/sun|solar|light/.test(content)) return "sun";
+  if (/earth|world|planet|globe/.test(content)) return "earth";
+  if (/cloud|rain|storm/.test(content)) return "cloud";
+  if (/water|vapor|ocean|river|droplet/.test(content)) return "water";
+  if (/plant|leaf|flower|tree|photosynth|sugar|glucose|food/.test(content)) return "plant";
+  if (/animal|bird|fish|mammal|insect/.test(content)) return "animal";
+  if (/atom|molecule|particle|chemical/.test(content)) return "atom";
+  if (/book|read|story|word|language|history/.test(content)) return "book";
+  if (/time|clock|day|year|season/.test(content)) return "clock";
+  if (/people|person|community|team/.test(content)) return "people";
+  if (/compare|balance|equal|greater|less/.test(content)) return "scale";
+  if (/shape|angle|triangle|square|geometry/.test(content)) return "shapes";
+  if (/map|country|place|land/.test(content)) return "map";
+  if (/speak|speech|ask|say|sound/.test(content)) return "speech";
+  if (/divide|share|split/.test(content)) return "divide";
+  if (/add|plus|combine|total/.test(content)) return "plus";
+  if (/group|times|multiply/.test(content)) return "groups";
+  if (/\d/.test(content)) return "number";
+  return fallback;
+}
+
 export function tutorThinkingScene(revision: number): ExcalidrawScene {
   return {
     schemaVersion: 1,
@@ -137,38 +172,56 @@ export function tutorThinkingScene(revision: number): ExcalidrawScene {
     status: "active",
     source: "agent-drawing",
     elements: [
-      text("thinking-title", "Let’s think about that…", 420, 260, 48, palette.green),
-      text("thinking-detail", "I’m preparing a short explanation and a visual.", 430, 350, 28, palette.muted),
-      { id: "thinking-arrow", type: "arrow", x: 500, y: 440, points: [[0, 0], [360, 0]], strokeColor: palette.amber, strokeWidth: 3 },
+      text("thinking-kicker", "CLASSROOM COMPASS", 88, 72, 18, palette.blue),
+      text("thinking-title", "Let’s build the idea together", 88, 118, 48, palette.navy),
+      text("thinking-detail", "I’m turning the question into a short explanation and a picture.", 92, 194, 26, palette.muted),
+      { id: "thinking-step-1", type: "ellipse", x: 150, y: 335, width: 230, height: 150, strokeColor: palette.blue, backgroundColor: palette.blueSoft, fillStyle: "solid", strokeWidth: 2 },
+      { id: "thinking-step-2", type: "ellipse", x: 605, y: 335, width: 230, height: 150, strokeColor: palette.purple, backgroundColor: palette.purpleSoft, fillStyle: "solid", strokeWidth: 2 },
+      { id: "thinking-step-3", type: "ellipse", x: 1_060, y: 335, width: 230, height: 150, strokeColor: palette.coral, backgroundColor: palette.coralSoft, fillStyle: "solid", strokeWidth: 2 },
+      text("thinking-step-1-number", "1", 245, 360, 26, palette.blue),
+      text("thinking-step-1-label", "Hear the question", 190, 410, 23, palette.navy),
+      text("thinking-step-2-number", "2", 700, 360, 26, palette.purple),
+      text("thinking-step-2-label", "Find the clues", 655, 410, 23, palette.navy),
+      text("thinking-step-3-number", "3", 1_155, 360, 26, palette.coral),
+      text("thinking-step-3-label", "Build the picture", 1_100, 410, 23, palette.navy),
+      { id: "thinking-arrow-1", type: "arrow", x: 395, y: 410, points: [[0, 0], [180, 0]], strokeColor: palette.sun, strokeWidth: 4 },
+      { id: "thinking-arrow-2", type: "arrow", x: 850, y: 410, points: [[0, 0], [180, 0]], strokeColor: palette.sun, strokeWidth: 4 },
+      { id: "thinking-spark-1", type: "diamond", x: 1_270, y: 105, width: 28, height: 28, strokeColor: palette.sun, backgroundColor: palette.sunSoft, fillStyle: "solid" },
+      { id: "thinking-spark-2", type: "diamond", x: 1_315, y: 150, width: 16, height: 16, strokeColor: palette.purple, backgroundColor: palette.purpleSoft, fillStyle: "solid" },
     ],
   };
 }
 
 export function genericTutorScene(turn: TutorTurn, revision: number): ExcalidrawScene {
-  const answerCopy = wrapText(turn.answer, 92, 6);
-  const answerLines = Math.max(1, answerCopy.split("\n").length);
-  const answerPanelHeight = Math.max(180, Math.min(260, 118 + answerLines * 30));
-  const nodeTop = 145 + answerPanelHeight;
   const equationMatches = [...turn.answer.matchAll(/(-?\d+(?:\.\d+)?)\s*([+\-×÷*/])\s*(-?\d+(?:\.\d+)?)\s*=\s*(-?\d+(?:\.\d+)?)/g)];
   const arithmeticMatch = equationMatches.at(-1);
   const equation = arithmeticMatch?.[0];
-  const conceptTop = nodeTop + (equation ? 72 : 0);
+  const sentences = turn.answer.split(/(?<=[.!?])\s+/).filter(Boolean);
+  const keyIdea = turn.visual.keyIdea?.trim() || sentences[0] || turn.visual.title;
+  const example = turn.visual.example?.trim() || sentences[1] || "Picture the idea one clear step at a time.";
+  const visualKind = turn.visual.kind ?? (arithmeticMatch ? "groups" : "concept");
+  const sectionLabels: Record<NonNullable<TutorTurn["visual"]["kind"]>, string> = {
+    concept: "CONNECT THE IDEAS",
+    sequence: "FOLLOW THE STEPS",
+    cause_effect: "SEE WHAT CAUSES WHAT",
+    comparison: "COMPARE THE CLUES",
+    cycle: "WATCH THE CYCLE",
+    groups: "BUILD IT WITH GROUPS",
+  };
   const elements: BoardElement[] = [
-    text("tutor-title", turn.visual.title, 70, 36, 40, palette.green),
-    { id: "answer-panel", type: "rectangle", x: 65, y: 105, width: 1_310, height: answerPanelHeight, strokeColor: palette.green, backgroundColor: palette.paper, fillStyle: "solid", strokeWidth: 2 },
-    text(
-      "answer-label",
-      turn.disposition === "defer" ? "A safe next step" : turn.disposition === "clarify" ? "Let’s make sure I heard you" : "Short answer",
-      100,
-      130,
-      19,
-      palette.muted,
-    ),
-    text("answer-copy", answerCopy, 100, 174, 24, palette.ink),
+    text("stage-kicker", "CLASSROOM COMPASS  •  VISUAL EXPLANATION", 72, 28, 16, palette.blue),
+    text("tutor-title", turn.visual.title, 72, 61, 43, palette.navy),
+    { id: "decor-spark-1", type: "diamond", x: 1_292, y: 40, width: 28, height: 28, strokeColor: palette.sun, backgroundColor: palette.sunSoft, fillStyle: "solid" },
+    { id: "decor-spark-2", type: "diamond", x: 1_335, y: 74, width: 17, height: 17, strokeColor: palette.purple, backgroundColor: palette.purpleSoft, fillStyle: "solid" },
+    { id: "big-idea-panel", type: "rectangle", x: 70, y: 126, width: 830, height: 180, strokeColor: palette.blue, backgroundColor: palette.blueSoft, fillStyle: "solid", strokeWidth: 2 },
+    { id: "big-idea-dot", type: "ellipse", x: 100, y: 151, width: 42, height: 42, strokeColor: palette.blue, backgroundColor: palette.paper, fillStyle: "solid", strokeWidth: 2, label: "★" },
+    text("big-idea-label", turn.disposition === "clarify" ? "LET’S CHECK WHAT I HEARD" : turn.disposition === "defer" ? "A SAFE NEXT STEP" : "THE BIG IDEA", 160, 156, 18, palette.blue),
+    text("big-idea-copy", wrapText(keyIdea, 52, 3), 105, 214, 29, palette.navy),
+    { id: "example-panel", type: "rectangle", x: 930, y: 126, width: 440, height: 180, strokeColor: palette.sun, backgroundColor: palette.sunSoft, fillStyle: "solid", strokeWidth: 2 },
+    text("example-label", equation ? "SEE IT WITH NUMBERS" : "MAKE IT REAL", 965, 156, 18, palette.sun),
+    text("example-copy", wrapText(equation ? `${example}\n${equation.replace("*", "×").replace("/", "÷")}` : example, 34, 5), 965, 202, equation ? 23 : 21, palette.navy),
+    text("path-label", sectionLabels[visualKind], 72, 342, 17, palette.purple),
   ];
-  if (equation) {
-    elements.push(text("equation-callout", equation.replace("*", "×").replace("/", "÷"), 485, nodeTop + 6, 36, palette.green));
-  }
 
   const nodes = arithmeticMatch
     ? [
@@ -183,21 +236,61 @@ export function genericTutorScene(turn: TutorTurn, revision: number): Excalidraw
         { from: 1, to: 2, label: "=" },
       ]
     : turn.visual.connections;
-  const columnCount = Math.min(3, Math.max(1, nodes.length));
-  const nodeWidth = columnCount === 1 ? 520 : columnCount === 2 ? 500 : 380;
-  const horizontalGap = columnCount === 1 ? 0 : columnCount === 2 ? 90 : 65;
+  const columnCount = Math.min(4, Math.max(1, nodes.length));
+  const nodeWidth = columnCount === 1 ? 580 : columnCount === 2 ? 520 : columnCount === 3 ? 385 : 290;
+  const horizontalGap = columnCount === 1 ? 0 : columnCount === 2 ? 70 : columnCount === 3 ? 40 : 35;
   const totalWidth = columnCount * nodeWidth + (columnCount - 1) * horizontalGap;
   const startX = 720 - totalWidth / 2;
   const positions = nodes.map((_, index) => ({
-    x: startX + (index % columnCount) * (nodeWidth + horizontalGap),
-    y: conceptTop + Math.floor(index / columnCount) * 165,
+    x: startX + index * (nodeWidth + horizontalGap),
+    y: 385,
     width: nodeWidth,
-    height: 120,
-    row: Math.floor(index / columnCount),
-    column: index % columnCount,
+    height: 170,
+    row: 0,
+    column: index,
   }));
+
+  connections.forEach((connection, index) => {
+    const from = positions[connection.from];
+    const to = positions[connection.to];
+    if (!from || !to) return;
+    const forward = to.column > from.column;
+    const startPoint = { x: from.x + (forward ? from.width : 0), y: from.y + from.height / 2 };
+    const endPoint = { x: to.x + (forward ? 0 : to.width), y: to.y + to.height / 2 };
+    const deltaX = endPoint.x - startPoint.x;
+    const deltaY = endPoint.y - startPoint.y;
+    elements.push({
+      id: `connection-${index}`,
+      type: "arrow",
+      x: startPoint.x,
+      y: startPoint.y,
+      points: [[0, 0], [deltaX, deltaY]],
+      strokeColor: palette.purple,
+      strokeWidth: 3,
+    });
+    if (connection.label) {
+      elements.push({
+        id: `connection-${index}-label`,
+        type: "text",
+        x: startPoint.x + deltaX / 2,
+        y: 360,
+        text: connection.label,
+        fontSize: 15,
+        strokeColor: palette.purple,
+        textAlign: "center",
+      });
+    }
+  });
+
+  const nodeColors = [
+    { stroke: palette.blue, background: palette.blueSoft },
+    { stroke: palette.purple, background: palette.purpleSoft },
+    { stroke: palette.coral, background: palette.coralSoft },
+    { stroke: palette.teal, background: palette.tealSoft },
+  ];
   nodes.forEach((node, index) => {
     const position = positions[index];
+    const colors = nodeColors[index % nodeColors.length];
     elements.push({
       id: `concept-${index}`,
       type: "rectangle",
@@ -205,46 +298,48 @@ export function genericTutorScene(turn: TutorTurn, revision: number): Excalidraw
       y: position.y,
       width: position.width,
       height: position.height,
-      strokeColor: palette.green,
-      backgroundColor: index % 2 === 0 ? palette.greenSoft : palette.lime,
-      fillStyle: index % 2 === 0 ? "hachure" : "solid",
+      strokeColor: colors.stroke,
+      backgroundColor: colors.background,
+      fillStyle: "solid",
       strokeWidth: 2,
     });
-    elements.push(text(`concept-${index}-label`, wrapText(node.label, Math.max(22, Math.floor(position.width / 13)), 2), position.x + 22, position.y + 18, 22, palette.ink));
+    elements.push({
+      id: `concept-${index}-number-badge`,
+      type: "ellipse",
+      x: position.x + 22,
+      y: position.y + 22,
+      width: 42,
+      height: 42,
+      strokeColor: colors.stroke,
+      backgroundColor: palette.paper,
+      fillStyle: "solid",
+      strokeWidth: 2,
+      label: String(index + 1),
+    });
+    elements.push({
+      id: `concept-${index}-symbol`,
+      type: "ellipse",
+      x: position.x + position.width - 63,
+      y: position.y + 22,
+      width: 42,
+      height: 42,
+      strokeColor: colors.stroke,
+      backgroundColor: palette.paper,
+      fillStyle: "solid",
+      strokeWidth: 2,
+      symbol: inferVisualSymbol(`${node.label} ${node.detail}`, node.symbol ?? "idea"),
+    });
+    elements.push(text(`concept-${index}-label`, wrapText(node.label, Math.max(10, Math.floor((position.width - 155) / 12)), 2), position.x + 80, position.y + 28, 23, palette.navy));
     if (node.detail.trim().toLowerCase() !== node.label.trim().toLowerCase()) {
-      elements.push(text(`concept-${index}-detail`, wrapText(node.detail, Math.max(30, Math.floor(position.width / 9)), 3), position.x + 22, position.y + 59, 16, palette.muted));
+      elements.push(text(`concept-${index}-detail`, wrapText(node.detail, Math.max(22, Math.floor(position.width / 10)), 3), position.x + 25, position.y + 88, 18, palette.ink));
     }
   });
-  connections.forEach((connection, index) => {
-    const from = positions[connection.from];
-    const to = positions[connection.to];
-    if (!from || !to) return;
-    const sameRow = from.row === to.row;
-    const startPoint = sameRow
-      ? { x: from.x + (to.column > from.column ? from.width : 0), y: from.y + from.height / 2 }
-      : { x: from.x + from.width / 2, y: from.y + from.height };
-    const endPoint = sameRow
-      ? { x: to.x + (to.column > from.column ? 0 : to.width), y: to.y + to.height / 2 }
-      : { x: to.x + to.width / 2, y: to.y };
-    const deltaX = endPoint.x - startPoint.x;
-    const deltaY = endPoint.y - startPoint.y;
-    const points: [number, number][] = sameRow
-      ? [[0, 0], [deltaX, deltaY]]
-      : [[0, 0], [0, deltaY / 2], [deltaX, deltaY / 2], [deltaX, deltaY]];
-    elements.push({
-      id: `connection-${index}`,
-      type: "arrow",
-      x: startPoint.x,
-      y: startPoint.y,
-      points,
-      strokeColor: palette.amber,
-      strokeWidth: 2,
-      label: connection.label,
-    });
-  });
   if (turn.followUpQuestion) {
-    const visualBottom = positions.length > 0 ? Math.max(...positions.map((position) => position.y + position.height)) : nodeTop;
-    elements.push(text("follow-up", `Try next: ${wrapText(turn.followUpQuestion, 82, 2)}`, 75, Math.min(730, visualBottom + 45), 23, palette.green));
+    elements.push({ id: "follow-up-panel", type: "rectangle", x: 70, y: 640, width: 1_300, height: 105, strokeColor: palette.purple, backgroundColor: palette.purpleSoft, fillStyle: "solid", strokeWidth: 2 });
+    elements.push(text("follow-up-label", "YOUR TURN", 105, 670, 17, palette.purple));
+    elements.push(text("follow-up", wrapText(turn.followUpQuestion, 76, 2), 250, 666, 25, palette.navy));
+  } else if (nodes.length === 0) {
+    elements.push(text("closing-idea", wrapText(turn.answer, 90, 4), 105, 430, 27, palette.navy));
   }
 
   return {
@@ -256,6 +351,52 @@ export function genericTutorScene(turn: TutorTurn, revision: number): Excalidraw
     status: "complete",
     source: "agent-drawing",
     elements,
+  };
+}
+
+export function coachingFeedbackScene(
+  assessment: TutorAssessment,
+  check: ComprehensionCheck,
+  revision: number,
+  finalCorrection = false,
+): ExcalidrawScene {
+  const presentation = assessment.status === "correct"
+    ? { title: "You’re on the right track!", label: "IDEA CONNECTED", stroke: palette.teal, soft: palette.tealSoft, symbol: "idea" as const }
+    : assessment.status === "partly_correct"
+      ? { title: "Good start—add one more idea", label: "ALMOST THERE", stroke: palette.purple, soft: palette.purpleSoft, symbol: "plus" as const }
+      : assessment.status === "off_track"
+        ? { title: "Let’s adjust one step", label: "TRY A NEW CLUE", stroke: palette.coral, soft: palette.coralSoft, symbol: "question" as const }
+        : { title: "Let’s make the idea clearer", label: "SAY A LITTLE MORE", stroke: palette.blue, soft: palette.blueSoft, symbol: "speech" as const };
+  const coachingText = finalCorrection ? check.correction : assessment.coachingExplanation;
+  const nextPrompt = assessment.status === "correct"
+    ? "Nice reasoning. Keep using the visual steps to explain how you know."
+    : finalCorrection
+      ? "Use this explanation as a model, then try a similar question when you’re ready."
+      : assessment.retryPrompt || check.prompt;
+  return {
+    schemaVersion: 1,
+    sceneId: "student-coaching-feedback",
+    revision,
+    title: presentation.title,
+    language: "en",
+    status: assessment.status === "correct" || finalCorrection ? "complete" : "active",
+    source: "reviewed-component",
+    elements: [
+      text("feedback-kicker", "CLASSROOM COMPASS  •  COACHING MOMENT", 72, 32, 16, presentation.stroke),
+      text("feedback-title", presentation.title, 72, 74, 46, palette.navy),
+      { id: "feedback-symbol", type: "ellipse", x: 1_245, y: 48, width: 82, height: 82, strokeColor: presentation.stroke, backgroundColor: presentation.soft, fillStyle: "solid", strokeWidth: 3, symbol: presentation.symbol },
+      { id: "feedback-working-panel", type: "rectangle", x: 70, y: 170, width: 610, height: 285, strokeColor: presentation.stroke, backgroundColor: presentation.soft, fillStyle: "solid", strokeWidth: 2 },
+      text("feedback-working-label", presentation.label, 108, 205, 17, presentation.stroke),
+      text("feedback-working-copy", wrapText(assessment.feedback, 43, 6), 108, 260, 27, palette.navy),
+      { id: "feedback-clue-panel", type: "rectangle", x: 730, y: 170, width: 640, height: 285, strokeColor: palette.sun, backgroundColor: palette.sunSoft, fillStyle: "solid", strokeWidth: 2 },
+      text("feedback-clue-label", assessment.status === "correct" ? "WHY IT WORKS" : finalCorrection ? "LET’S REBUILD IT" : "NEXT CLUE", 770, 205, 17, palette.sun),
+      text("feedback-clue-copy", wrapText(coachingText, 46, 7), 770, 258, 24, palette.navy),
+      { id: "feedback-next-panel", type: "rectangle", x: 70, y: 520, width: 1_300, height: 155, strokeColor: palette.blue, backgroundColor: palette.blueSoft, fillStyle: "solid", strokeWidth: 2 },
+      text("feedback-next-label", assessment.status === "correct" ? "KEEP GOING" : finalCorrection ? "TAKEAWAY" : "TRY AGAIN", 108, 552, 17, palette.blue),
+      text("feedback-next-copy", wrapText(nextPrompt, 78, 3), 108, 598, 27, palette.navy),
+      { id: "feedback-spark-1", type: "diamond", x: 1_285, y: 705, width: 24, height: 24, strokeColor: palette.sun, backgroundColor: palette.sunSoft, fillStyle: "solid" },
+      { id: "feedback-spark-2", type: "diamond", x: 1_325, y: 728, width: 14, height: 14, strokeColor: palette.purple, backgroundColor: palette.purpleSoft, fillStyle: "solid" },
+    ],
   };
 }
 

@@ -18,6 +18,71 @@ type AdapterEvent = {
   provenance: { adapter: string; version: string; confidenceBand?: "medium" };
 };
 
+export type WhisperCaptureDevice = { id: string; name: string };
+
+export function parseWhisperCaptureDevice(line: string): WhisperCaptureDevice | null {
+  const match = line.match(/Capture device #(\d+):\s*'([^']+)'/i);
+  return match ? { id: match[1], name: match[2] } : null;
+}
+
+export function selectWhisperCaptureDevice(devices: WhisperCaptureDevice[], requestedName: string) {
+  const requestedNames = requestedName
+    .split("|")
+    .map((name) => name.trim().toLocaleLowerCase())
+    .filter(Boolean);
+  for (const requested of requestedNames) {
+    const exact = devices.find((device) => device.name.toLocaleLowerCase() === requested);
+    if (exact) return exact;
+  }
+  for (const requested of requestedNames) {
+    const partial = devices.find((device) => device.name.toLocaleLowerCase().includes(requested));
+    if (partial) return partial;
+  }
+  return null;
+}
+
+async function resolveCaptureDeviceByName(executable: string, model: string, requestedName: string) {
+  return new Promise<WhisperCaptureDevice>((resolve, reject) => {
+    const devices: WhisperCaptureDevice[] = [];
+    const probe = spawn(executable, [
+      "--model", model,
+      "--capture", "9999",
+      "--step", "0",
+      "--length", "1000",
+      "--vad-thold", "0.50",
+      "--freq-thold", "100",
+    ], { stdio: ["ignore", "pipe", "pipe"] });
+    let settled = false;
+
+    const finish = (error?: Error, device?: WhisperCaptureDevice) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      probe.kill("SIGTERM");
+      if (error) reject(error);
+      else resolve(device!);
+    };
+    const inspect = (line: string) => {
+      const device = parseWhisperCaptureDevice(line);
+      if (!device) return;
+      devices.push(device);
+      const selected = selectWhisperCaptureDevice(devices, requestedName);
+      if (selected) finish(undefined, selected);
+    };
+    createInterface({ input: probe.stdout, crlfDelay: Infinity }).on("line", inspect);
+    createInterface({ input: probe.stderr, crlfDelay: Infinity }).on("line", inspect);
+    probe.once("error", (error) => finish(new Error(`Unable to inspect microphones: ${error.message}`)));
+    probe.once("close", () => {
+      const available = devices.map((device) => device.name).join(", ") || "none reported";
+      finish(new Error(`None of the requested microphones (${requestedName.replaceAll("|", ", ")}) were found. Available devices: ${available}.`));
+    });
+    const timer = setTimeout(() => {
+      const available = devices.map((device) => device.name).join(", ") || "none reported";
+      finish(new Error(`Timed out finding requested microphones (${requestedName.replaceAll("|", ", ")}). Available devices: ${available}.`));
+    }, 4_000);
+  });
+}
+
 function writeEvent(kind: AdapterEvent["kind"], payload: AdapterEvent["payload"], confidenceBand?: "medium") {
   const event: AdapterEvent = {
     kind,
@@ -64,10 +129,14 @@ export function mergeOverlappingTranscript(existing: string, incoming: string) {
 
 export class WhisperStreamParser {
   private segments: string[] | null = null;
+  private ready = false;
 
   accept(line: string): { ready?: true; transcript?: string } {
     const cleanedLine = line.replace(/\r$/, "");
-    if (cleanedLine.includes("[Start speaking]")) return { ready: true };
+    if (cleanedLine.includes("[Start speaking]")) {
+      this.ready = true;
+      return { ready: true };
+    }
     if (transcriptionStart.test(cleanedLine)) {
       this.segments = [];
       return {};
@@ -80,6 +149,15 @@ export class WhisperStreamParser {
     if (this.segments) {
       const segment = cleanWhisperSegment(cleanedLine);
       if (segment) this.segments.push(segment);
+      return {};
+    }
+    // With --step > 0, current whisper-stream releases render each rolling
+    // transcription directly on a terminal line instead of wrapping it in
+    // ### Transcription START/END markers. Only accept such lines after the
+    // explicit ready marker so model/device diagnostics cannot become speech.
+    if (this.ready) {
+      const transcript = cleanWhisperSegment(cleanedLine);
+      if (transcript) return { transcript };
     }
     return {};
   }
@@ -105,20 +183,35 @@ class LocalWhisperMicrophone {
       return;
     }
 
+    let captureID = process.env.CC_WHISPER_CAPTURE_ID;
+    let captureName = captureID ? `capture device #${captureID}` : "default microphone";
+    const requestedCaptureName = process.env.CC_WHISPER_CAPTURE_NAME?.trim();
+    if (!captureID && requestedCaptureName) {
+      try {
+        const resolved = await resolveCaptureDeviceByName(executable, model, requestedCaptureName);
+        captureID = resolved.id;
+        captureName = resolved.name;
+        process.stderr.write(`Resolved microphone \"${resolved.name}\" as capture device #${resolved.id}.\n`);
+      } catch (error) {
+        this.fail(error instanceof Error ? error.message : String(error));
+        return;
+      }
+    }
+
+    const stepMs = process.env.CC_WHISPER_STEP_MS ?? "0";
     const args = [
       "--model", model,
       "--language", process.env.CC_WHISPER_LANGUAGE ?? "en",
-      "--step", "0",
+      "--step", stepMs,
       "--length", process.env.CC_WHISPER_WINDOW_MS ?? "10000",
       "--vad-thold", process.env.CC_WHISPER_VAD_THRESHOLD ?? "0.50",
       "--freq-thold", process.env.CC_WHISPER_FREQUENCY_THRESHOLD ?? "100",
     ];
-    const captureID = process.env.CC_WHISPER_CAPTURE_ID;
     if (captureID) args.push("--capture", captureID);
 
     this.child = spawn(executable, args, { stdio: ["ignore", "pipe", "pipe"] });
     const lines = createInterface({ input: this.child.stdout!, crlfDelay: Infinity });
-    lines.on("line", (line) => this.acceptLine(line));
+    lines.on("line", (line) => this.acceptLine(line, captureName));
     const diagnostics = createInterface({ input: this.child.stderr!, crlfDelay: Infinity });
     diagnostics.on("line", (line) => {
       if (/capture device|audio\.init|permission|\berror\b|\bwarning\b/i.test(line)) {
@@ -137,11 +230,15 @@ class LocalWhisperMicrophone {
     this.child?.kill("SIGTERM");
   }
 
-  private acceptLine(line: string) {
+  private acceptLine(line: string, captureName: string) {
     const result = this.parser.accept(line);
     if (result.ready && !this.connected) {
       this.connected = true;
-      writeEvent("microphone_connected", { device: "default microphone (local Whisper)" });
+      writeEvent("microphone_connected", { device: `${captureName} (local Whisper)` });
+      const stepMs = Number(process.env.CC_WHISPER_STEP_MS ?? 0);
+      process.stderr.write(stepMs > 0
+        ? `Classroom Compass local Whisper adapter ready in ${stepMs} ms rolling-window mode for a noisy room.\n`
+        : "Classroom Compass local Whisper adapter ready in voice-activity mode.\n");
       process.stderr.write("Classroom Compass local Whisper adapter ready. Ask any educational question, then pause briefly.\n");
     }
     if (!result.transcript) return;

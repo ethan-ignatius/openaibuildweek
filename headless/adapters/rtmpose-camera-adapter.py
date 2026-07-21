@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Local multi-person RTMPose camera adapter with an optional diagnostic window."""
+"""Local multi-person RTMW camera adapter with open-palm raise confirmation."""
 
 from __future__ import annotations
 
@@ -18,16 +18,23 @@ import cv2
 import numpy as np
 
 
-ADAPTER_ID = "local-rtmpose-m@1.0.0"
+ADAPTER_ID = "local-rtmw-m-palm@1.1.0"
 COCO_LINKS = (
     (5, 7), (7, 9), (6, 8), (8, 10), (5, 6),
     (5, 11), (6, 12), (11, 12), (11, 13), (13, 15),
     (12, 14), (14, 16), (0, 1), (0, 2), (1, 3), (2, 4),
 )
+LEFT_HAND_START = 91
+RIGHT_HAND_START = 112
+HAND_LINKS = tuple(
+    (finger_start + offset, finger_start + offset + 1)
+    for finger_start in (1, 5, 9, 13, 17)
+    for offset in range(3)
+) + ((0, 1), (0, 5), (0, 9), (0, 13), (0, 17))
 
 
 def emit(kind: str, payload: dict[str, Any], confidence_band: str | None = None) -> None:
-    provenance: dict[str, str] = {"adapter": ADAPTER_ID, "version": "1.0.0"}
+    provenance: dict[str, str] = {"adapter": ADAPTER_ID, "version": "1.1.0"}
     if confidence_band:
         provenance["confidenceBand"] = confidence_band
     print(json.dumps({
@@ -90,21 +97,71 @@ def confidence_band(value: float) -> str:
     return "low"
 
 
-def raised_hand(keypoints: np.ndarray, scores: np.ndarray, threshold: float = 0.35) -> tuple[bool, float]:
-    """Return whether either COCO wrist is above its matching shoulder."""
+def open_palm(
+    keypoints: np.ndarray,
+    scores: np.ndarray,
+    start: int,
+    threshold: float = 0.25,
+) -> tuple[bool, float]:
+    """Confirm at least three extended fingers from RTMW's 21 hand landmarks."""
+    if keypoints.shape[0] < start + 21 or scores.shape[0] < start + 21:
+        return False, 0.0
+    hand_points = keypoints[start:start + 21]
+    hand_scores = scores[start:start + 21]
+    wrist = hand_points[0]
+    if float(hand_scores[0]) < threshold:
+        return False, 0.0
+    extended_scores: list[float] = []
+    for mcp, pip, tip in ((5, 6, 8), (9, 10, 12), (13, 14, 16), (17, 18, 20)):
+        required_score = min(float(hand_scores[index]) for index in (mcp, pip, tip))
+        if required_score < threshold:
+            continue
+        pip_distance = float(np.linalg.norm(hand_points[pip] - wrist))
+        tip_distance = float(np.linalg.norm(hand_points[tip] - wrist))
+        if pip_distance > 1.0 and tip_distance >= pip_distance * 1.12:
+            extended_scores.append(required_score)
+    return len(extended_scores) >= 3, min(extended_scores, default=0.0)
+
+
+def raised_hand(
+    keypoints: np.ndarray,
+    scores: np.ndarray,
+    threshold: float = 0.35,
+    require_open_palm: bool = True,
+) -> tuple[bool, float]:
+    """Confirm a deliberate vertical raise, optionally with an open RTMW palm."""
     if keypoints.shape[0] < 11 or scores.shape[0] < 11:
         return False, 0.0
     candidates: list[float] = []
-    for shoulder_index, wrist_index in ((5, 9), (6, 10)):
+    visible_body = keypoints[:17][scores[:17] >= threshold]
+    body_height = float(np.ptp(visible_body[:, 1])) if len(visible_body) else 0.0
+    shoulder_width = (
+        float(np.linalg.norm(keypoints[5] - keypoints[6]))
+        if min(float(scores[5]), float(scores[6])) >= threshold
+        else body_height * 0.25
+    )
+    for shoulder_index, elbow_index, wrist_index, hand_start in (
+        (5, 7, 9, LEFT_HAND_START),
+        (6, 8, 10, RIGHT_HAND_START),
+    ):
         shoulder_score = float(scores[shoulder_index])
+        elbow_score = float(scores[elbow_index])
         wrist_score = float(scores[wrist_index])
-        if min(shoulder_score, wrist_score) < threshold:
+        if min(shoulder_score, elbow_score, wrist_score) < threshold:
             continue
-        visible = keypoints[scores >= threshold]
-        body_height = float(np.ptp(visible[:, 1])) if len(visible) else 0.0
-        margin = max(8.0, body_height * 0.05)
-        if float(keypoints[wrist_index][1]) < float(keypoints[shoulder_index][1]) - margin:
-            candidates.append(min(shoulder_score, wrist_score))
+        shoulder = keypoints[shoulder_index]
+        elbow = keypoints[elbow_index]
+        wrist = keypoints[wrist_index]
+        vertical_margin = max(12.0, body_height * 0.10, shoulder_width * 0.35)
+        wrist_is_high = float(wrist[1]) < float(shoulder[1]) - vertical_margin
+        forearm_points_up = float(wrist[1]) < float(elbow[1]) - max(8.0, body_height * 0.04)
+        not_flared_sideways = abs(float(wrist[0] - shoulder[0])) <= max(45.0, shoulder_width * 1.40)
+        if not (wrist_is_high and forearm_points_up and not_flared_sideways):
+            continue
+        palm_visible, palm_score = open_palm(keypoints, scores, hand_start)
+        if require_open_palm and not palm_visible:
+            continue
+        candidates.append(min(shoulder_score, elbow_score, wrist_score, palm_score or wrist_score))
     return (bool(candidates), max(candidates, default=0.0))
 
 
@@ -138,21 +195,31 @@ def draw_regions(frame: np.ndarray, regions: list[SeatRegion]) -> None:
 def draw_pose(frame: np.ndarray, keypoints: np.ndarray, scores: np.ndarray, raised: bool, region: SeatRegion | None) -> None:
     threshold = 0.35
     color = (70, 220, 120) if raised else (255, 190, 70)
-    visible = scores >= threshold
+    body_scores = scores[:17]
+    body_points = keypoints[:17]
+    visible = body_scores >= threshold
     for start, end in COCO_LINKS:
-        if start < len(scores) and end < len(scores) and visible[start] and visible[end]:
+        if start < len(body_scores) and end < len(body_scores) and visible[start] and visible[end]:
             a = tuple(np.asarray(keypoints[start], dtype=int))
             b = tuple(np.asarray(keypoints[end], dtype=int))
             cv2.line(frame, a, b, color, 2, cv2.LINE_AA)
-    for index, point in enumerate(keypoints):
-        if index < len(scores) and visible[index]:
+    for index, point in enumerate(body_points):
+        if visible[index]:
             cv2.circle(frame, tuple(np.asarray(point, dtype=int)), 4, color, -1, cv2.LINE_AA)
-    points = keypoints[visible]
+    if raised and len(keypoints) >= RIGHT_HAND_START + 21:
+        for hand_start in (LEFT_HAND_START, RIGHT_HAND_START):
+            for start, end in HAND_LINKS:
+                a_index, b_index = hand_start + start, hand_start + end
+                if float(scores[a_index]) >= 0.25 and float(scores[b_index]) >= 0.25:
+                    a = tuple(np.asarray(keypoints[a_index], dtype=int))
+                    b = tuple(np.asarray(keypoints[b_index], dtype=int))
+                    cv2.line(frame, a, b, (90, 255, 160), 2, cv2.LINE_AA)
+    points = body_points[visible]
     if len(points):
         x0, y0 = np.min(points, axis=0).astype(int)
         x1, y1 = np.max(points, axis=0).astype(int)
         cv2.rectangle(frame, (x0 - 12, y0 - 12), (x1 + 12, y1 + 12), color, 2)
-        status = "HAND RAISED" if raised else "Pose detected"
+        status = "OPEN PALM RAISED" if raised else "Pose detected"
         label = f"{region.label if region else 'Unassigned'} · {status}"
         cv2.putText(frame, label, (max(8, x0 - 12), max(28, y0 - 20)), cv2.FONT_HERSHEY_SIMPLEX, 0.58, color, 2, cv2.LINE_AA)
 
@@ -177,7 +244,7 @@ def update_states(
             state.active = True
             emit("hand_raise", {
                 "seat": region.id,
-                "detail": "RTMPose observed a wrist above its matching shoulder across multiple frames.",
+                "detail": "RTMW observed an open palm on a deliberately raised, upward-pointing arm across multiple frames.",
             }, confidence_band(score))
             print(f"Hand raise: {region.label}", file=sys.stderr, flush=True)
         if state.active and state.lowered_frames >= 8:
@@ -187,11 +254,12 @@ def update_states(
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Classroom Compass RTMPose camera adapter")
+    parser = argparse.ArgumentParser(description="Classroom Compass multi-person RTMW camera adapter")
     parser.add_argument("--camera", type=int, default=1, help="OpenCV camera index")
     parser.add_argument("--preview", action="store_true", help="Show a local diagnostic window")
     parser.add_argument("--regions", help="JSON file containing normalized seat polygons")
-    parser.add_argument("--mode", choices=("lightweight", "balanced", "performance"), default="balanced")
+    parser.add_argument("--mode", choices=("lightweight", "balanced", "performance"), default="lightweight")
+    parser.add_argument("--gesture", choices=("open-palm", "raised-arm"), default="open-palm")
     parser.add_argument("--detection-interval", type=int, default=3, help="Run person detection every N frames; pose estimation still runs every frame")
     parser.add_argument("--width", type=int, default=1280)
     parser.add_argument("--height", type=int, default=720)
@@ -200,15 +268,30 @@ def parse_args() -> argparse.Namespace:
 
 
 def self_test() -> None:
-    keypoints = np.zeros((17, 2), dtype=np.float32)
-    scores = np.zeros(17, dtype=np.float32)
+    keypoints = np.zeros((133, 2), dtype=np.float32)
+    scores = np.zeros(133, dtype=np.float32)
+    keypoints[6] = (160, 200)
+    scores[6] = 0.9
     keypoints[5] = (100, 200)
-    keypoints[9] = (100, 80)
-    scores[[5, 9]] = 0.9
+    keypoints[7] = (100, 145)
+    keypoints[9] = (100, 90)
+    scores[[5, 7, 9]] = 0.9
+    for local_index, point in enumerate([
+        (100, 90), (82, 82), (76, 72), (70, 62), (64, 52),
+        (92, 76), (91, 62), (90, 48), (89, 32),
+        (100, 74), (100, 58), (100, 42), (100, 24),
+        (108, 76), (109, 62), (110, 48), (111, 32),
+        (116, 80), (119, 68), (122, 56), (126, 43),
+    ]):
+        keypoints[LEFT_HAND_START + local_index] = point
+        scores[LEFT_HAND_START + local_index] = 0.85
     assert raised_hand(keypoints, scores)[0]
+    keypoints[9] = (20, 190)
+    keypoints[7] = (60, 195)
+    assert not raised_hand(keypoints, scores)[0]
     assert assigned_region(default_regions(), (500, 300), 900, 600).id == "camera-center"
     emit("camera_connected", {"device": "self-test"})
-    emit("hand_raise", {"seat": "camera-center", "detail": "Synthetic RTMPose adapter self-test."}, "high")
+    emit("hand_raise", {"seat": "camera-center", "detail": "Synthetic open-palm RTMW adapter self-test."}, "high")
 
 
 def main() -> int:
@@ -219,9 +302,9 @@ def main() -> int:
 
     regions = load_regions(args.regions)
     with contextlib.redirect_stdout(sys.stderr):
-        from rtmlib import Body, PoseTracker
+        from rtmlib import Body, PoseTracker, Wholebody
         model = PoseTracker(
-            Body,
+            Wholebody if args.gesture == "open-palm" else Body,
             det_frequency=max(1, args.detection_interval),
             tracking=False,
             mode=args.mode,
@@ -249,8 +332,9 @@ def main() -> int:
         cv2.namedWindow("Classroom Compass · Pose Preview", cv2.WINDOW_NORMAL)
         cv2.resizeWindow("Classroom Compass · Pose Preview", 960, 540)
 
-    emit("camera_connected", {"device": f"camera-index-{args.camera} (RTMPose-m)"})
-    print("RTMPose camera ready. Frames remain in memory and are not saved.", file=sys.stderr, flush=True)
+    model_label = "RTMW-m whole-body" if args.gesture == "open-palm" else "RTMPose-m body"
+    emit("camera_connected", {"device": f"camera-index-{args.camera} ({model_label})"})
+    print(f"{model_label} camera ready. Frames remain in memory and are not saved.", file=sys.stderr, flush=True)
     states: dict[str, RaiseState] = {}
     smoothed_fps = 0.0
 
@@ -276,7 +360,7 @@ def main() -> int:
                 for pose, pose_scores in zip(keypoints_array, scores_array):
                     anchor = pose_anchor(pose, pose_scores)
                     region = assigned_region(regions, anchor, width, height) if anchor else None
-                    is_raised, score = raised_hand(pose, pose_scores)
+                    is_raised, score = raised_hand(pose, pose_scores, require_open_palm=args.gesture == "open-palm")
                     if region:
                         prior = observations.get(region.id, (False, 0.0))
                         observations[region.id] = (prior[0] or is_raised, max(prior[1], score))
@@ -291,9 +375,10 @@ def main() -> int:
                 for pose, pose_scores, is_raised, region in pose_rows:
                     draw_pose(frame, pose, pose_scores, is_raised, region)
                 cv2.rectangle(frame, (0, 0), (width, 42), (18, 24, 28), -1)
-                header = f"RTMPose-m · {len(pose_rows)} pose{'s' if len(pose_rows) != 1 else ''} · {smoothed_fps:.1f} FPS · raw media saved: 0"
+                header = f"{model_label} · {len(pose_rows)} pose{'s' if len(pose_rows) != 1 else ''} · {smoothed_fps:.1f} FPS · raw media saved: 0"
                 cv2.putText(frame, header, (14, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (245, 245, 245), 2, cv2.LINE_AA)
-                cv2.putText(frame, "Raise wrist above shoulder · Q or Esc closes", (14, height - 16), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (245, 245, 245), 2, cv2.LINE_AA)
+                instruction = "Show an open palm above your shoulder · Q or Esc closes" if args.gesture == "open-palm" else "Raise wrist above shoulder · Q or Esc closes"
+                cv2.putText(frame, instruction, (14, height - 16), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (245, 245, 245), 2, cv2.LINE_AA)
                 cv2.imshow("Classroom Compass · Pose Preview", frame)
                 key = cv2.waitKey(1) & 0xFF
                 if key in (ord("q"), 27):
