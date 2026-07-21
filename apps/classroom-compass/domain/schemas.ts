@@ -41,6 +41,7 @@ export function sanitizeTranscript(text: string) {
     .replace(/<[^>]*>/g, "")
     .replace(/\b(system|developer|assistant)\s*:/gi, "[role word removed]")
     .replace(/ignore (all|previous|prior) instructions/gi, "[instruction-shaped phrase removed]")
+    .replace(/\b(?:unlock|enable|activate|grant)\s+(?:the\s+)?(?:tools?|browser|shell|system|commands?)\b/gi, "[tool-control phrase removed]")
     .slice(0, 1200)
     .trim();
 }
