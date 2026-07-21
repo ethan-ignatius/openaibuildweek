@@ -17,6 +17,7 @@ type CalledOnState = {
   seat: string;
   studentRef: string;
   expiresAt: number;
+  fragments: string[];
 };
 
 const checkNumberWords: Record<string, string> = {
@@ -33,6 +34,25 @@ function normalizeCheckText(value: string) {
 function meaningfulWords(value: string) {
   const ignored = new Set(["a", "an", "and", "are", "as", "at", "be", "because", "by", "for", "from", "in", "is", "it", "of", "on", "or", "the", "to", "with"]);
   return normalizeCheckText(value).split(" ").filter((word) => word.length > 1 && !ignored.has(word));
+}
+
+function transcriptWords(value: string) {
+  return value.toLocaleLowerCase().match(/[\p{L}\p{N}]+(?:[.'’-][\p{L}\p{N}]+)*/gu) ?? [];
+}
+
+/** Avoid closing a called-on turn on a preamble or partial rolling transcript. */
+function looksLikeCompleteQuestion(value: string) {
+  const words = transcriptWords(value);
+  if (words.length < 3) return false;
+  if (value.includes("?")) return true;
+  const questionWords = new Set([
+    "can", "could", "did", "do", "does", "how", "is", "may", "should", "was", "were",
+    "what", "when", "where", "which", "who", "why", "will", "would", "cómo", "cuál", "cuándo",
+    "dónde", "porqué", "puede", "puedes", "qué", "quién",
+  ]);
+  const cueIndex = words.findIndex((word) => questionWords.has(word));
+  if (cueIndex >= 0 && cueIndex <= 2 && words.length - cueIndex >= 4) return true;
+  return /^(?:please\s+)?(?:describe|explain|help me|i don['’]t understand|show me|tell me|ayúdame|dime|explica|muéstrame|no entiendo)\b/i.test(value.trim()) && words.length >= 4;
 }
 
 function localAssessment(check: ComprehensionCheck, response: string): TutorAssessment | null {
@@ -137,7 +157,14 @@ export class TutorRuntime {
         this.calledOn = null;
         await this.store.appendAudit("called_on_window_expired", "The listening window ended without storing or answering ambient speech.");
       }
-      const continuingTurn = Boolean(this.processingQuestion || this.activeInteraction || this.activeGeneralCheck);
+      // In hand-raise mode, model latency and amplified tutor speech are not
+      // additional student turns. A reviewed interaction/check explicitly
+      // opens response input; otherwise a new hand raise is required.
+      const continuingTurn = Boolean(
+        this.activeInteraction
+        || this.activeGeneralCheck
+        || (!this.requireHandRaise && this.processingQuestion),
+      );
       if (this.requireHandRaise && !continuingTurn && !this.calledOn) {
         await this.store.appendAudit("ambient_transcript_ignored", "A transcript outside a confirmed hand-raise listening window was discarded and not stored.");
         process.stderr.write("Ignored ambient speech; waiting for a confirmed raised hand.\n");
@@ -150,6 +177,23 @@ export class TutorRuntime {
         studentRef,
         payload: { ...event.payload, ...(seat ? { seat } : {}) },
       };
+      const preparedText = await this.prepareStudentText(event.payload.text ?? "");
+      if (!preparedText) return;
+      event = { ...event, payload: { ...event.payload, text: preparedText } };
+      if (this.calledOn) {
+        const completeQuestion = this.captureCalledOnQuestion(preparedText);
+        if (!completeQuestion) {
+          await this.store.appendAudit("called_on_fragment_waiting", "The microphone produced a partial turn, so the hand-raise gate stayed open for a complete question without storing the fragment as participation evidence.");
+          return;
+        }
+        event = { ...event, payload: { ...event.payload, text: completeQuestion } };
+        this.activeStudentRef = this.calledOn.studentRef;
+        await this.store.appendAudit("called_on_turn_started", `The next usable microphone turn was associated with ${this.calledOn.seat} by classroom turn-taking, not by voice identification.`);
+        process.stderr.write(`Question received for ${this.calledOn.seat}.\n`);
+        this.calledOn = null;
+      }
+      this.recentStudentTexts.push({ text: event.payload.text ?? preparedText, acceptedAt: Date.now() });
+      this.recentStudentTexts = this.recentStudentTexts.filter((item) => Date.now() - item.acceptedAt < 20_000).slice(-6);
     }
     await this.store.appendEvent(event);
     if (event.kind === "sensor_unavailable") {
@@ -158,19 +202,6 @@ export class TutorRuntime {
       await this.store.appendAudit("sensor_failure_reported", detail);
       if (this.stopOnSensorFailure) await this.stop("A required room sensor became unavailable.");
       return;
-    }
-    if (transcriptEvent) {
-      const preparedText = await this.prepareStudentText(event.payload.text ?? "");
-      if (!preparedText) return;
-      event = { ...event, payload: { ...event.payload, text: preparedText } };
-      if (this.calledOn) {
-        this.activeStudentRef = this.calledOn.studentRef;
-        await this.store.appendAudit("called_on_turn_started", `The next usable microphone turn was associated with ${this.calledOn.seat} by classroom turn-taking, not by voice identification.`);
-        process.stderr.write(`Question received for ${this.calledOn.seat}.\n`);
-        this.calledOn = null;
-      }
-      this.recentStudentTexts.push({ text: preparedText, acceptedAt: Date.now() });
-      this.recentStudentTexts = this.recentStudentTexts.filter((item) => Date.now() - item.acceptedAt < 20_000).slice(-6);
     }
     if (event.kind === "hand_raise") return this.handleHandRaise(event);
     if (event.kind === "question_transcribed") return this.handleQuestion(event);
@@ -204,6 +235,7 @@ export class TutorRuntime {
       seat,
       studentRef: event.studentRef ?? `seat:${seat}`,
       expiresAt: Date.now() + this.calledOnWindowMs,
+      fragments: [],
     };
     this.calledOn = calledOn;
     const language = this.tutorProvider?.languageForStudent?.(calledOn.studentRef) ?? "en";
@@ -555,6 +587,19 @@ export class TutorRuntime {
       return null;
     }
     return filtered.text;
+  }
+
+  private captureCalledOnQuestion(fragment: string) {
+    const calledOn = this.calledOn;
+    if (!calledOn) return fragment;
+    if (looksLikeCompleteQuestion(fragment)) return fragment;
+
+    const prior = calledOn.fragments.at(-1);
+    if (!prior || transcriptSimilarity(prior, fragment) < 0.8) calledOn.fragments.push(fragment);
+    else calledOn.fragments[calledOn.fragments.length - 1] = fragment;
+    calledOn.fragments = calledOn.fragments.slice(-3);
+    const combined = calledOn.fragments.join(" ").replace(/\s+/g, " ").trim();
+    return looksLikeCompleteQuestion(combined) ? combined : null;
   }
 
   private async showBoard(sceneCandidate: unknown) {
