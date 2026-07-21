@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleIdentifier</key>
+  <string>org.classroomcompass.local-hand-raise-adapter</string>
+  <key>CFBundleName</key>
+  <string>Classroom Compass Camera Adapter</string>
+  <key>CFBundleVersion</key>
+  <string>1</string>
+  <key>NSCameraUsageDescription</key>
+  <string>Classroom Compass uses ephemeral camera frames during an active lesson to detect a raised hand without recording video or identifying faces.</string>
+</dict>
+</plist>
