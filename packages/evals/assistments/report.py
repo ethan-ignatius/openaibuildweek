@@ -75,6 +75,10 @@ def write_assistments_report(
             "only that note and the next skill tag. Full-context and no-memory conditions "
             "use the same prediction points.",
             "",
+            "The notes condition enforces a 6,000-character replacement-note limit. "
+            "The model must aggregate repeated evidence so persistent memory remains "
+            "human-readable and bounded.",
+            "",
             "The pyBKT adapter preserves chronological student-skill sequences and "
             "activates the package's serial E-step through a documented pyBKT 1.4.x "
             "import compatibility path. Non-finite outputs are counted and reported; "
