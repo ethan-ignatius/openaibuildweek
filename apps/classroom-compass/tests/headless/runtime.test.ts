@@ -226,6 +226,121 @@ describe("headless tutor runtime", () => {
     await runtime.stop();
   });
 
+  it("starts sensing before a slow opening lesson and lets a raised hand supersede it", async () => {
+    const previousRaise = process.env.CC_REQUIRE_HAND_RAISE;
+    const previousAutostart = process.env.CC_AUTO_START_LESSON;
+    process.env.CC_REQUIRE_HAND_RAISE = "1";
+    process.env.CC_AUTO_START_LESSON = "1";
+    try {
+      const store = await storeFor("session-sensing-before-opening-test");
+      const output = new ConsoleClassroomOutput(true);
+      let releaseSensor!: () => void;
+      const sensor: SensorAdapter = {
+        id: "immediate-camera-fixture",
+        status: "ready",
+        start: vi.fn(async (emit) => {
+          sensor.status = "running";
+          await emit({
+            id: "camera-ready",
+            sessionId: "session-sensing-before-opening-test",
+            kind: "camera_connected",
+            source: "live",
+            occurredAt: new Date().toISOString(),
+            payload: { device: "fixture-camera" },
+            provenance: { adapter: sensor.id, version: "1" },
+          });
+          await new Promise<void>((resolve) => { releaseSensor = resolve; });
+        }),
+        pause: vi.fn(async () => { sensor.status = "paused"; }),
+        resume: vi.fn(async () => { sensor.status = "running"; }),
+        stop: vi.fn(async () => { sensor.status = "stopped"; releaseSensor?.(); }),
+      };
+      let releaseOpening!: () => void;
+      const beginLesson = vi.fn(async () => {
+        await new Promise<void>((resolve) => { releaseOpening = resolve; });
+        return {
+          disposition: "answer" as const,
+          answer: "Stale opening lesson",
+          spokenAnswer: "Stale opening lesson",
+          visual: { title: "Opening", nodes: [], connections: [] },
+          followUpQuestion: "What do you notice?",
+          provider: "fixture",
+          model: "fixture",
+          language: "en" as const,
+        };
+      });
+      const answer = vi.fn(async (input: { transcript: string }) => {
+        if (!input.transcript) throw new Error("Expected a called-on student question");
+        return {
+          disposition: "answer" as const,
+          answer: "Plants use light energy to help make sugar.",
+          spokenAnswer: "Plants use light energy to help make sugar.",
+          visual: { title: "Photosynthesis", nodes: [], connections: [] },
+          followUpQuestion: "What supplies the energy?",
+          provider: "fixture",
+          model: "fixture",
+          language: "en" as const,
+        };
+      });
+      const provider: TutorAnswerProvider = {
+        id: "slow-opening-fixture",
+        answer,
+        beginLesson,
+        languageForStudent: () => "es",
+        displayNameForStudent: () => "Emanuel",
+      };
+      const runtime = new TutorRuntime(store, [sensor], output, provider);
+      const starting = runtime.start();
+
+      await vi.waitFor(() => expect(sensor.start).toHaveBeenCalledOnce());
+      expect(runtime.snapshot().events.some((event) => event.kind === "camera_connected")).toBe(true);
+      await runtime.handleEvent({
+        id: "ambient-during-opening",
+        sessionId: "session-sensing-before-opening-test",
+        kind: "question_transcribed",
+        source: "live",
+        occurredAt: new Date().toISOString(),
+        payload: { text: "Background room conversation" },
+        provenance: { adapter: "fixture-microphone", version: "1" },
+      });
+      await runtime.handleEvent({
+        id: "raise-during-opening",
+        sessionId: "session-sensing-before-opening-test",
+        kind: "hand_raise",
+        source: "live",
+        occurredAt: new Date().toISOString(),
+        payload: { seat: "camera-right" },
+        provenance: { adapter: "fixture-camera", version: "1", confidenceBand: "high" },
+      });
+      await runtime.handleEvent({
+        id: "question-during-opening",
+        sessionId: "session-sensing-before-opening-test",
+        kind: "question_transcribed",
+        source: "live",
+        occurredAt: new Date().toISOString(),
+        payload: { text: "¿Cómo usan la luz las plantas?" },
+        provenance: { adapter: "fixture-microphone", version: "1", confidenceBand: "high" },
+      });
+      releaseOpening();
+
+      await vi.waitFor(() => expect(answer).toHaveBeenCalledOnce());
+      expect(vi.mocked(answer).mock.calls[0][0].transcript).toBe("¿Cómo usan la luz las plantas?");
+      expect(runtime.snapshot().events.some((event) => event.id === "ambient-during-opening")).toBe(false);
+      expect(output.delivered.some((command) => command.text === "Emanuel, te escucho. Adelante con tu pregunta.")).toBe(true);
+      expect(output.delivered.some((command) => command.text === "Stale opening lesson")).toBe(false);
+      expect(output.delivered.some((command) => command.text === "Plants use light energy to help make sugar.")).toBe(true);
+      expect(runtime.snapshot().audit.some((entry) => entry.action === "lesson_generation_interrupted")).toBe(true);
+
+      await runtime.stop();
+      await starting;
+    } finally {
+      if (previousRaise === undefined) delete process.env.CC_REQUIRE_HAND_RAISE;
+      else process.env.CC_REQUIRE_HAND_RAISE = previousRaise;
+      if (previousAutostart === undefined) delete process.env.CC_AUTO_START_LESSON;
+      else process.env.CC_AUTO_START_LESSON = previousAutostart;
+    }
+  });
+
   it("lets a second raised-hand question interrupt an answer and resumes only after the new answer", async () => {
     const previousRaise = process.env.CC_REQUIRE_HAND_RAISE;
     const previousAutostart = process.env.CC_AUTO_START_LESSON;

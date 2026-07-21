@@ -125,12 +125,18 @@ export class TutorRuntime {
     this.status = "running";
     await this.store.update((record) => { record.status = "running"; });
     await this.store.appendAudit("runtime_started", `Headless tutor started with ${this.sensors.length} sensor adapter(s) and output ${this.output.id}.`);
+    // Camera and microphone initialization must never wait behind a network model
+    // request. Attach completion handling immediately, then let the opening lesson
+    // run while the local sensing adapters come online.
+    const sensorCompletion = Promise.all(
+      this.sensors.map((sensor) => sensor.start((event) => this.handleEvent(event), this.controller.signal)),
+    );
     if (this.autoStartLesson) {
       await this.beginLessonIfSupported();
     } else {
       await this.store.appendAudit("lesson_autostart_disabled", "Room mode is waiting for a confirmed hand raise before invoking the tutor.");
     }
-    await Promise.all(this.sensors.map((sensor) => sensor.start((event) => this.handleEvent(event), this.controller.signal)));
+    await sensorCompletion;
     if (options.stopWhenSensorsComplete) await this.stop("Sensor fixture completed.");
   }
 
@@ -142,7 +148,10 @@ export class TutorRuntime {
         this.calledOn = null;
         await this.store.appendAudit("called_on_window_expired", "The listening window ended without storing or answering ambient speech.");
       }
-      const continuingTurn = Boolean(this.processingQuestion || this.activeInteraction || this.activeGeneralCheck);
+      const continuingTurn = Boolean(
+        this.activeStudentRef
+        && (this.processingQuestion || this.activeInteraction || this.activeGeneralCheck),
+      );
       if (this.requireHandRaise && !continuingTurn && !this.calledOn) {
         await this.store.appendAudit("ambient_transcript_ignored", "A transcript outside a confirmed hand-raise listening window was discarded and not stored.");
         process.stderr.write("Ignored ambient speech; waiting for a confirmed raised hand.\n");
@@ -195,7 +204,10 @@ export class TutorRuntime {
       this.speechEpoch += 1;
       await this.output.cancel();
       await this.store.appendAudit("lesson_speech_interrupted", "Current lesson speech was stopped for a confirmed hand raise.");
-    } else if (this.processingQuestion || this.activeInteraction || this.activeGeneralCheck || this.activeSpokenTexts.size > 0) {
+    } else if (this.processingQuestion) {
+      this.speechEpoch += 1;
+      await this.store.appendAudit("lesson_generation_interrupted", "A confirmed hand raise superseded a lesson turn that was still being prepared.");
+    } else if (this.activeInteraction || this.activeGeneralCheck || this.activeSpokenTexts.size > 0) {
       await this.store.appendAudit("hand_raise_observed_busy", "A hand raise was recorded while the tutor was already facilitating a turn; it did not interrupt the active interaction.");
       return;
     }
@@ -285,6 +297,7 @@ export class TutorRuntime {
       await this.store.appendAudit("tutor_thinking", "The tutor kept the current turn open while preparing one explanation; no extra microphone turn was created.");
       await this.store.appendAudit("tutor_model_requested", `Sent a sanitized, untrusted transcript to ${this.tutorProvider.id}.`);
       try {
+        const requestEpoch = this.speechEpoch;
         const turn = await this.tutorProvider.answer({
           transcript: event.payload.text ?? "",
           lessonTitle: this.store.snapshot().lessonTitle,
@@ -294,40 +307,48 @@ export class TutorRuntime {
           transcriptionSegments: event.payload.transcriptionSegments,
           gradeBand: process.env.CC_GRADE_BAND ?? "grades 4-8",
         }, this.controller.signal);
-        this.conversation.push(
-          { role: "student", content: event.payload.text ?? "" },
-          { role: "tutor", content: `${turn.answer}${turn.followUpQuestion ? ` ${turn.followUpQuestion}` : ""}` },
-        );
-        this.conversation = this.conversation.slice(-8);
-        const completed = await this.deliverTutorTurn(turn, true);
-        if (!turn.boardPlan && completed) {
-          const generalCheck = this.activateGeneralCheck(event, turn);
-          if (generalCheck) {
-            await this.store.appendAudit("comprehension_check_opened", "The tutor finished its explanation and is listening for the response to the displayed check.");
+        if (requestEpoch !== this.speechEpoch) {
+          await this.store.appendAudit("tutor_answer_superseded", "A newer confirmed hand raise arrived while this answer was being prepared, so the stale answer was not displayed or spoken.");
+          modelAnswered = true;
+        } else {
+          this.conversation.push(
+            { role: "student", content: event.payload.text ?? "" },
+            { role: "tutor", content: `${turn.answer}${turn.followUpQuestion ? ` ${turn.followUpQuestion}` : ""}` },
+          );
+          this.conversation = this.conversation.slice(-8);
+          const completed = await this.deliverTutorTurn(turn, true);
+          if (!turn.boardPlan && completed) {
+            const generalCheck = this.activateGeneralCheck(event, turn);
+            if (generalCheck) {
+              await this.store.appendAudit("comprehension_check_opened", "The tutor finished its explanation and is listening for the response to the displayed check.");
+            }
           }
-        }
-        await this.store.appendAudit("tutor_model_answered", `${turn.provider} produced a validated ${turn.disposition} response using ${turn.model}.`);
-        modelAnswered = true;
-        if (!completed) {
-          await this.store.appendAudit("tutor_answer_interrupted", "A confirmed hand raise stopped the current explanation; its remaining narration and automatic lesson resume were skipped.");
-        } else if (this.tutorProvider.resumeLesson) {
-          try {
-            const resumeGuidance = typeof turn.providerMetadata?.resumeGuidance === "string"
-              ? turn.providerMetadata.resumeGuidance
-              : undefined;
-            const resumed = await this.tutorProvider.resumeLesson({
-              lessonTitle: this.store.snapshot().lessonTitle,
-              resumeGuidance,
-            }, this.controller.signal);
-            const completed = await this.deliverTutorTurn(resumed, true);
-            await this.store.appendAudit(
-              completed ? "lesson_resumed" : "lesson_resume_interrupted",
-              completed
-                ? "Teacher Brain returned to the interrupted lesson using its explicit resume guidance."
-                : "The resumed lesson speech was stopped for another confirmed hand raise.",
-            );
-          } catch {
-            await this.store.appendAudit("lesson_resume_failed", "The interruption answer completed, but the follow-on lesson turn was unavailable.");
+          await this.store.appendAudit("tutor_model_answered", `${turn.provider} produced a validated ${turn.disposition} response using ${turn.model}.`);
+          modelAnswered = true;
+          if (!completed) {
+            await this.store.appendAudit("tutor_answer_interrupted", "A confirmed hand raise stopped the current explanation; its remaining narration and automatic lesson resume were skipped.");
+          } else if (this.tutorProvider.resumeLesson) {
+            try {
+              const resumeGuidance = typeof turn.providerMetadata?.resumeGuidance === "string"
+                ? turn.providerMetadata.resumeGuidance
+                : undefined;
+              const resumeRequestEpoch = this.speechEpoch;
+              const resumed = await this.tutorProvider.resumeLesson({
+                lessonTitle: this.store.snapshot().lessonTitle,
+                resumeGuidance,
+              }, this.controller.signal);
+              const completed = resumeRequestEpoch === this.speechEpoch
+                ? await this.deliverTutorTurn(resumed, true)
+                : false;
+              await this.store.appendAudit(
+                completed ? "lesson_resumed" : "lesson_resume_interrupted",
+                completed
+                  ? "Teacher Brain returned to the interrupted lesson using its explicit resume guidance."
+                  : "The resumed lesson was superseded by another confirmed hand raise.",
+              );
+            } catch {
+              await this.store.appendAudit("lesson_resume_failed", "The interruption answer completed, but the follow-on lesson turn was unavailable.");
+            }
           }
         }
       } catch (error) {
@@ -495,17 +516,22 @@ export class TutorRuntime {
     if (!this.tutorProvider?.beginLesson) return;
     this.processingQuestion = true;
     try {
+      const requestEpoch = this.speechEpoch;
       const turn = await this.tutorProvider.beginLesson(
         { lessonTitle: this.store.snapshot().lessonTitle },
         this.controller.signal,
       );
-      const completed = await this.deliverTutorTurn(turn, true);
-      await this.store.appendAudit(
-        completed ? "lesson_started" : "lesson_start_interrupted",
-        completed
-          ? "Teacher Brain produced the opening lesson turn before listening for interruptions."
-          : "The opening lesson speech was stopped for a confirmed hand raise.",
-      );
+      if (requestEpoch !== this.speechEpoch) {
+        await this.store.appendAudit("lesson_start_interrupted", "A confirmed hand raise arrived while the opening was being prepared, so that stale opening was not displayed or spoken.");
+      } else {
+        const completed = await this.deliverTutorTurn(turn, true);
+        await this.store.appendAudit(
+          completed ? "lesson_started" : "lesson_start_interrupted",
+          completed
+            ? "Teacher Brain produced the opening lesson turn while sensing remained available."
+            : "The opening lesson speech was stopped for a confirmed hand raise.",
+        );
+      }
     } catch {
       await this.store.appendAudit("lesson_start_failed", "Teacher Brain could not produce the opening lesson turn; sensing remains available.");
     } finally {
