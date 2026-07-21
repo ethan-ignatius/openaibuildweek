@@ -152,6 +152,40 @@ export class ElevenLabsClassroomOutput implements ClassroomOutputAdapter {
   async close() { await this.cancel(); }
 }
 
+export class FallbackClassroomOutput implements ClassroomOutputAdapter {
+  id = `fallback:${this.primary.id}->${this.fallback.id}`;
+  private primaryUnavailable = false;
+
+  constructor(
+    private primary: ClassroomOutputAdapter,
+    private fallback: ClassroomOutputAdapter,
+    private reportFallback: (error: unknown) => void = (error) => {
+      const reason = error instanceof Error ? error.message : "unknown error";
+      process.stderr.write(`[VOICE] ElevenLabs unavailable (${reason}); using the system speaker for the rest of this session.\n`);
+    },
+  ) {}
+
+  async deliver(command: TutorCommand) {
+    if (this.primaryUnavailable) return this.fallback.deliver(command);
+    try {
+      await this.primary.deliver(command);
+    } catch (error) {
+      this.primaryUnavailable = true;
+      this.reportFallback(error);
+      await this.primary.cancel();
+      await this.fallback.deliver(command);
+    }
+  }
+
+  async cancel() {
+    await Promise.all([this.primary.cancel(), this.fallback.cancel()]);
+  }
+
+  async close() {
+    await Promise.all([this.primary.close(), this.fallback.close()]);
+  }
+}
+
 export function systemSpeakerForPlatform() {
   if (process.platform === "darwin") {
     return new SystemSpeakerOutput("/usr/bin/say", [], {
@@ -166,17 +200,19 @@ export function classroomOutputFromEnvironment(
   forceAudio = false,
 ): ClassroomOutputAdapter {
   const apiKey = environment.ELEVENLABS_API_KEY ?? environment.ELEVEN_LABS_API_KEY;
-  const requested = environment.CC_AUDIO_OUTPUT?.toLowerCase()
+  const configured = environment.CC_AUDIO_OUTPUT?.toLowerCase()
     ?? (forceAudio ? (apiKey ? "elevenlabs" : "system") : "console");
+  const requested = configured === "auto" ? (apiKey ? "elevenlabs" : "system") : configured;
   if (requested === "elevenlabs") {
     const configuredTimeout = Number(environment.CC_ELEVENLABS_TIMEOUT_MS ?? 30_000);
-    return new ElevenLabsClassroomOutput({
+    const elevenLabs = new ElevenLabsClassroomOutput({
       apiKey: apiKey ?? "",
       voiceId: environment.ELEVENLABS_VOICE_ID ?? DEFAULT_ELEVENLABS_VOICE_ID,
       modelId: environment.ELEVENLABS_MODEL_ID ?? DEFAULT_ELEVENLABS_MODEL_ID,
       outputFormat: environment.ELEVENLABS_OUTPUT_FORMAT ?? DEFAULT_ELEVENLABS_OUTPUT_FORMAT,
       timeoutMs: Number.isFinite(configuredTimeout) && configuredTimeout > 0 ? configuredTimeout : 30_000,
     });
+    return new FallbackClassroomOutput(elevenLabs, systemSpeakerForPlatform());
   }
   if (requested === "system" || forceAudio) return systemSpeakerForPlatform();
   return new ConsoleClassroomOutput(false);

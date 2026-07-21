@@ -4,8 +4,9 @@ import {
   classroomOutputFromEnvironment,
   DEFAULT_ELEVENLABS_VOICE_ID,
   ElevenLabsClassroomOutput,
+  FallbackClassroomOutput,
 } from "../../headless/adapters/classroom-output";
-import type { TutorCommand } from "../../headless/core/types";
+import type { ClassroomOutputAdapter, TutorCommand } from "../../headless/core/types";
 
 function speakCommand(language: "en" | "es" = "en"): TutorCommand {
   return {
@@ -66,13 +67,46 @@ describe("ElevenLabsClassroomOutput", () => {
 
   it("prefers ElevenLabs for --audio when either supported key name is present", () => {
     expect(classroomOutputFromEnvironment({ ELEVEN_LABS_API_KEY: "test-key" }, true).id)
-      .toBe("elevenlabs-classroom-output@1.0.0");
+      .toContain("elevenlabs-classroom-output@1.0.0");
     expect(classroomOutputFromEnvironment({ ELEVENLABS_API_KEY: "test-key" }, true).id)
-      .toBe("elevenlabs-classroom-output@1.0.0");
+      .toContain("elevenlabs-classroom-output@1.0.0");
+  });
+
+  it("selects ElevenLabs in live-room auto mode only when a key is available", () => {
+    expect(classroomOutputFromEnvironment({ CC_AUDIO_OUTPUT: "auto", ELEVEN_LABS_API_KEY: "test-key" }).id)
+      .toContain("elevenlabs-classroom-output@1.0.0");
+    expect(classroomOutputFromEnvironment({ CC_AUDIO_OUTPUT: "auto" }).id)
+      .toBe("system-speaker-output@1.0.0");
   });
 
   it("fails clearly when ElevenLabs is explicitly selected without a key", () => {
     expect(() => classroomOutputFromEnvironment({ CC_AUDIO_OUTPUT: "elevenlabs" }))
       .toThrow("ElevenLabs audio requires");
+  });
+});
+
+describe("FallbackClassroomOutput", () => {
+  it("latches to the system fallback after a provider failure", async () => {
+    const primary: ClassroomOutputAdapter = {
+      id: "primary",
+      deliver: vi.fn(async () => { throw new Error("provider unavailable"); }),
+      cancel: vi.fn(async () => {}),
+      close: vi.fn(async () => {}),
+    };
+    const fallback: ClassroomOutputAdapter = {
+      id: "fallback",
+      deliver: vi.fn(async () => {}),
+      cancel: vi.fn(async () => {}),
+      close: vi.fn(async () => {}),
+    };
+    const reportFallback = vi.fn();
+    const output = new FallbackClassroomOutput(primary, fallback, reportFallback);
+
+    await output.deliver(speakCommand());
+    await output.deliver(speakCommand("es"));
+
+    expect(primary.deliver).toHaveBeenCalledOnce();
+    expect(fallback.deliver).toHaveBeenCalledTimes(2);
+    expect(reportFallback).toHaveBeenCalledOnce();
   });
 });

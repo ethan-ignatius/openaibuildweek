@@ -168,7 +168,7 @@ ELEVENLABS_VOICE_ID=4O1sYUnmtThcBoSBrri7
 CC_AUDIO_OUTPUT=elevenlabs npm run voice:run
 ```
 
-The CLI accepts either `ELEVEN_LABS_API_KEY` or the standard `ELEVENLABS_API_KEY` spelling. `npm run teacher:demo -- --audio` also prefers ElevenLabs when either key is present. English and Spanish use the same voice through the low-latency multilingual model. Temporary MP3 files are deleted immediately after playback and are never included in the session journal.
+The CLI accepts either `ELEVEN_LABS_API_KEY` or the standard `ELEVENLABS_API_KEY` spelling. `npm run teacher:demo -- --audio` and the full `npm run room:run` launcher prefer ElevenLabs when either key is present. English and Spanish use the same voice through the low-latency multilingual model. Temporary MP3 files are deleted immediately after playback and are never included in the session journal. If ElevenLabs rejects or times out, the runtime reports it once and uses the system speaker for the rest of that session so teaching can continue.
 
 If permission was previously denied, open **System Settings → Privacy & Security → Microphone**, enable Terminal, and restart `npm run voice:run`. That menu path is an instruction to follow in System Settings, not a Terminal command.
 
