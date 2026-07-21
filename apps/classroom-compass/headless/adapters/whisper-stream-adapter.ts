@@ -21,8 +21,10 @@ type AdapterEvent = {
 export type WhisperCaptureDevice = { id: string; name: string };
 
 export function parseWhisperCaptureDevice(line: string): WhisperCaptureDevice | null {
-  const match = line.match(/Capture device #(\d+):\s*'([^']+)'/i);
-  return match ? { id: match[1], name: match[2] } : null;
+  const whisperMatch = line.match(/Capture device #(\d+):\s*'([^']+)'/i);
+  if (whisperMatch) return { id: whisperMatch[1], name: whisperMatch[2] };
+  const meterMatch = line.match(/^Capture #(\d+):\s*(.+?)\s*$/i);
+  return meterMatch ? { id: meterMatch[1], name: meterMatch[2] } : null;
 }
 
 export function selectWhisperCaptureDevice(devices: WhisperCaptureDevice[], requestedName: string) {

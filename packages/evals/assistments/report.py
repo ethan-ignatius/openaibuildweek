@@ -18,7 +18,7 @@ def write_assistments_report(
     eligible_students: int | None = None,
     interactions: int | None = None,
     results: Mapping[str, BinaryMetrics] | None = None,
-    model: str = "gpt-5.6",
+    model: str = "gpt-5.6-sol",
     usage: TokenUsage = TokenUsage(),
     pybkt_fallback_count: int = 0,
     pybkt_num_fits: int | None = None,

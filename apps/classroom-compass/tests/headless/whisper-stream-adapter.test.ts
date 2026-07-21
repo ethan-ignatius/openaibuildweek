@@ -30,6 +30,10 @@ describe("local Whisper stream adapter", () => {
       id: "0",
       name: "Audio Streaming",
     });
+    expect(parseWhisperCaptureDevice("Capture #1: MacBook Air Microphone")).toEqual({
+      id: "1",
+      name: "MacBook Air Microphone",
+    });
   });
 
   it("extracts a complete timestamped transcription block", () => {

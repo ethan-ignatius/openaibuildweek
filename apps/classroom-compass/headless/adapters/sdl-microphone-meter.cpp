@@ -51,6 +51,10 @@ int main(int argc, char** argv) {
     std::cout << "Capture #" << index << ": " << (name ? name : "unknown") << "\n";
     if (name) deviceNames.emplace_back(name);
   }
+  if (requested == "--list") {
+    SDL_Quit();
+    return 0;
+  }
   std::vector<std::string> aliases;
   std::size_t start = 0;
   while (start <= requested.size()) {

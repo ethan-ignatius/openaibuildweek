@@ -23,7 +23,7 @@ class HarnessConfig(BaseModel):
     orchestration: bool = True
     journaling: bool = True
 
-    model: str = "gpt-5.6"
+    model: str = "gpt-5.6-sol"
     reasoning_effort: Literal["none", "low", "medium", "high", "xhigh", "max"] = "low"
     model_timeout_seconds: float = Field(default=90.0, gt=0)
     model_max_attempts: int = Field(default=3, ge=1, le=6)
@@ -50,7 +50,7 @@ class HarnessConfig(BaseModel):
             pedagogy_context=os.getenv("TEACHER_BRAIN_PEDAGOGY_CONTEXT", "on"),
             orchestration=env_bool("TEACHER_BRAIN_ORCHESTRATION", True),
             journaling=env_bool("TEACHER_BRAIN_JOURNALING", True),
-            model=os.getenv("OPENAI_MODEL", "gpt-5.6"),
+            model=os.getenv("OPENAI_MODEL", "gpt-5.6-sol"),
             reasoning_effort=os.getenv("OPENAI_REASONING_EFFORT", "low"),
             model_timeout_seconds=float(os.getenv("OPENAI_TIMEOUT_SECONDS", "90")),
             model_max_attempts=int(os.getenv("OPENAI_MAX_ATTEMPTS", "3")),
