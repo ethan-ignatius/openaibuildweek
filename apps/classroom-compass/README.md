@@ -152,6 +152,16 @@ The default trial prints tutor speech to Terminal to prevent the laptop speakers
 CC_AUDIO_OUTPUT=system npm run voice:run
 ```
 
+For the configured bilingual ElevenLabs voice, place the API key in the repository's ignored `.env` and run:
+
+```bash
+ELEVEN_LABS_API_KEY=... # in .env; never commit this value
+ELEVENLABS_VOICE_ID=4O1sYUnmtThcBoSBrri7
+CC_AUDIO_OUTPUT=elevenlabs npm run voice:run
+```
+
+The CLI accepts either `ELEVEN_LABS_API_KEY` or the standard `ELEVENLABS_API_KEY` spelling. `npm run teacher:demo -- --audio` also prefers ElevenLabs when either key is present. English and Spanish use the same voice through the low-latency multilingual model. Temporary MP3 files are deleted immediately after playback and are never included in the session journal.
+
 If permission was previously denied, open **System Settings → Privacy & Security → Microphone**, enable Terminal, and restart `npm run voice:run`. That menu path is an instruction to follow in System Settings, not a Terminal command.
 
 Useful local Whisper tuning:
@@ -279,7 +289,7 @@ export CC_AUDIO_OUTPUT=system
 npm start
 ```
 
-`CC_AUDIO_OUTPUT=system` uses `/usr/bin/say` on macOS and `espeak` elsewhere. The default is stdout, which is safer during integration.
+`CC_AUDIO_OUTPUT=system` uses `/usr/bin/say` on macOS and `espeak` elsewhere. `CC_AUDIO_OUTPUT=elevenlabs` uses the configured multilingual ElevenLabs voice. The default is stdout, which is safer during integration.
 
 Each sensor process writes one JSON object per stdout line. Examples:
 

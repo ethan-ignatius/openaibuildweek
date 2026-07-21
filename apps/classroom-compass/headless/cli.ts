@@ -1,7 +1,9 @@
 #!/usr/bin/env node
+import { existsSync } from "node:fs";
 import { mkdir, readdir, readFile } from "node:fs/promises";
 import path from "node:path";
-import { ConsoleClassroomOutput, systemSpeakerForPlatform } from "./adapters/classroom-output";
+import { loadEnvFile } from "node:process";
+import { classroomOutputFromEnvironment } from "./adapters/classroom-output";
 import { FixtureSensorAdapter } from "./adapters/fixture-sensor";
 import { TeacherBrainDemoSensorAdapter } from "./adapters/teacher-brain-demo-sensor";
 import { JsonLineSensorAdapter, parseCommandSpec } from "./adapters/json-line-sensor";
@@ -11,6 +13,16 @@ import type { ClassroomOutputAdapter, SensorAdapter } from "./core/types";
 import { createTutorProviderFromEnvironment } from "./reasoning/tutor-provider";
 import { TeacherBrainTutorProvider } from "./reasoning/teacher-brain-provider";
 import { LocalEventStore, newSessionRecord } from "./storage/local-event-store";
+
+for (const candidate of [
+  path.resolve(process.cwd(), ".env"),
+  path.resolve(process.cwd(), "../.env"),
+  path.resolve(process.cwd(), "../../.env"),
+]) {
+  if (!existsSync(candidate)) continue;
+  loadEnvFile(candidate);
+  break;
+}
 
 const command = process.argv[2] ?? "help";
 const flags = new Set(process.argv.slice(3));
@@ -26,7 +38,7 @@ async function runDemo() {
   const store = new LocalEventStore(dataDirectory, newSessionRecord(id, "demo"));
   const boardMode = flags.has("--board");
   const sensor = new FixtureSensorAdapter(id, flags.has("--fast") ? 1 : boardMode ? 1_500 : 80, true);
-  const output = flags.has("--audio") ? systemSpeakerForPlatform() : new ConsoleClassroomOutput(false);
+  const output = classroomOutputFromEnvironment(process.env, flags.has("--audio"));
   const runtime = new TutorRuntime(store, [sensor], output);
   const control = boardMode ? new ControlServer(runtime, controlPort) : null;
   await control?.start();
@@ -80,7 +92,7 @@ async function runTeacherBrainDemo() {
     spanishStudent.studentRef,
     flags.has("--fast") ? 1 : 900,
   );
-  const output = flags.has("--audio") ? systemSpeakerForPlatform() : new ConsoleClassroomOutput(false);
+  const output = classroomOutputFromEnvironment(process.env, flags.has("--audio"));
   const runtime = new TutorRuntime(store, [sensor], output, provider);
   const control = boardMode ? new ControlServer(runtime, controlPort) : null;
   await control?.start();
@@ -127,9 +139,7 @@ async function runService() {
   if (cameraCommand) sensors.push(new JsonLineSensorAdapter("local-camera-pipeline@1.0.0", id, cameraCommand));
   if (microphoneCommand) sensors.push(new JsonLineSensorAdapter("local-microphone-transcriber@1.0.0", id, microphoneCommand));
   if (sensors.length === 0) sensors.push(new JsonLineSensorAdapter("stdin-sensor-bridge@1.0.0", id));
-  const output: ClassroomOutputAdapter = process.env.CC_AUDIO_OUTPUT === "system" || flags.has("--audio")
-    ? systemSpeakerForPlatform()
-    : new ConsoleClassroomOutput(false);
+  const output: ClassroomOutputAdapter = classroomOutputFromEnvironment(process.env, flags.has("--audio"));
   const tutorProvider = createTutorProviderFromEnvironment(process.env);
   const runtime = new TutorRuntime(store, sensors, output, tutorProvider);
   const control = new ControlServer(runtime, controlPort);
