@@ -5,11 +5,11 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from jsonschema import Draft202012Validator
+from jsonschema import Draft202012Validator, FormatChecker
 from jsonschema.exceptions import best_match
+from referencing import Registry, Resource
 
-REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
-SCHEMA_DIRECTORY = REPOSITORY_ROOT / "packages" / "shared" / "schemas"
+SCHEMA_DIRECTORY = Path(__file__).resolve().parent / "schemas"
 
 
 class SharedSchemaError(ValueError):
@@ -35,9 +35,24 @@ def load_schema(schema_name: str) -> dict[str, Any]:
     return schema
 
 
+@lru_cache(maxsize=1)
+def schema_registry() -> Registry:
+    registry = Registry()
+    for schema_path in sorted(SCHEMA_DIRECTORY.glob("*.schema.json")):
+        schema = json.loads(schema_path.read_text(encoding="utf-8"))
+        Draft202012Validator.check_schema(schema)
+        resource = Resource.from_contents(schema)
+        registry = registry.with_resource(schema["$id"], resource)
+    return registry
+
+
 @lru_cache(maxsize=None)
 def get_validator(schema_name: str) -> Draft202012Validator:
-    return Draft202012Validator(load_schema(schema_name))
+    return Draft202012Validator(
+        load_schema(schema_name),
+        registry=schema_registry(),
+        format_checker=FormatChecker(),
+    )
 
 
 def validate_payload(schema_name: str, payload: object) -> None:

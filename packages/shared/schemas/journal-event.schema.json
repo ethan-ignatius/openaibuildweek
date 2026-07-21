@@ -4,7 +4,7 @@
   "title": "Journal event",
   "type": "object",
   "additionalProperties": false,
-  "required": ["event_id", "session_id", "timestamp", "event_type", "payload"],
+  "required": ["event_id", "session_id", "timestamp", "event_type", "payload", "sequence"],
   "properties": {
     "event_id": { "type": "string", "format": "uuid" },
     "session_id": { "type": "string", "minLength": 1, "maxLength": 128 },
@@ -19,12 +19,16 @@
         "plan.revision",
         "perception.event",
         "voice.transcript",
+        "eval.observation",
+        "eval.prediction",
+        "eval.metric",
         "session.started",
         "session.ended"
       ]
     },
     "payload": { "type": "object" },
     "latency_ms": { "type": "number", "minimum": 0 },
+    "sequence": { "type": "integer", "minimum": 0 },
     "token_usage": {
       "type": "object",
       "additionalProperties": false,

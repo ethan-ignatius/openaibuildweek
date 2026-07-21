@@ -6,7 +6,7 @@ from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, stat
 from fastapi.middleware.cors import CORSMiddleware
 
 from server.app.hub import board_hub
-from server.app.schema_registry import SharedSchemaError, validate_payload
+from packages.shared.schema import SharedSchemaError, validate_payload
 
 app = FastAPI(
     title="Teacher Brain API",

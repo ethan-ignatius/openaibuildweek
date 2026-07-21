@@ -126,8 +126,13 @@ These constraints are enforced in code and documentation:
 
 ## Status
 
-Teacher Brain is being built for a 36-hour hackathon. Development starts with M0;
-each milestone is accepted only after its Definition of Done passes.
+M0 is complete: a curl-injected, schema-validated action renders on the live board
+over FastAPI and WebSocket, including math and highlighting.
+
+M1's harness, ASSISTments, NCTE Tier 1, reporting, and replay implementations pass
+the local fixture suite. M1 is **not accepted yet** because the external dataset files
+and `OPENAI_API_KEY` are not present in this checkout, so no real local agent numbers
+have been produced. Checked-in reports state `UNAVAILABLE` and show zero local tokens.
 
 ## M0 Quick Start
 
@@ -167,3 +172,19 @@ npm run typecheck
 npm run build
 npm run verify:m0  # requires the API and board dev servers
 ```
+
+## M1 Evaluation Quick Start
+
+The input contract and access requirements are documented in
+[`docs/eval-methodology.md`](docs/eval-methodology.md). Once the authorized datasets
+are under `data/` and `OPENAI_API_KEY` is set, run:
+
+```bash
+.venv/bin/python scripts/run_assistments_eval.py --max-students 5
+.venv/bin/python scripts/run_ncte_eval.py --max-transcripts 10
+```
+
+Reports are written to `packages/evals/assistments/report.md` and
+`packages/evals/ncte/report.md`. Session state and JSONL journals stay under the
+gitignored `state/evals/` tree. See [`docs/harness.md`](docs/harness.md) for ablation,
+memory, model-boundary, and deterministic replay details.
