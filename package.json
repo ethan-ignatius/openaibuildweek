@@ -12,6 +12,10 @@
     "dev:classroom": "npm run dev --workspace classroom-compass",
     "dev:excalidraw": "npm run board:dev --workspace classroom-compass",
     "demo:teacher-brain": "npm run teacher:demo --workspace classroom-compass --",
+    "setup:room": "npm run vision:setup --workspace classroom-compass && npm run voice:setup --workspace classroom-compass && npm run voice:meter:build --workspace classroom-compass",
+    "room:run": "npm run room:run --workspace classroom-compass",
+    "room:preview": "npm run room:preview --workspace classroom-compass",
+    "voice:meter": "npm run voice:meter --workspace classroom-compass",
     "test": "npm run test --workspace @teacher-brain/board && npm run test --workspace classroom-compass",
     "typecheck": "npm run typecheck --workspace @teacher-brain/shared && npm run typecheck --workspace @teacher-brain/board && npm run typecheck --workspace classroom-compass",
     "verify:m0": "node scripts/verify-m0.mjs"

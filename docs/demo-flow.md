@@ -24,7 +24,7 @@ Node.js 22.13 or newer.
 Terminal 1 — start Teacher Brain:
 
 ```bash
-.venv/bin/python -m uvicorn server.app.main:app --host 127.0.0.1 --port 8000
+.venv/bin/python -m uvicorn server.app.main:app --host 127.0.0.1 --port 8000 --env-file .env
 ```
 
 Terminal 2 — start the projector:
@@ -41,7 +41,7 @@ Terminal 3 — run the rehearsal:
 export CC_LESSON_TITLE="Equivalent Fractions"
 export CC_TEACHER_BRAIN_OBJECTIVE="Explain equivalent fractions using equal-sized parts."
 export CC_TEACHER_BRAIN_SOURCE_MATERIAL="Use fraction bars before symbolic multiplication."
-npm run demo:teacher-brain -- --board --audio
+npm run demo:teacher-brain -- --board
 ```
 
 The command supplies this safe demo roster when no roster is configured:
@@ -50,7 +50,7 @@ The command supplies this safe demo roster when no roster is configured:
 - `seat-spanish` → Sofia, Spanish
 - `seat-quiet` → Riley, English
 
-Remove `--audio` to print speech without playing it. Add `--fast` to remove the
+Add `--quiet` to print speech instead of playing it. Add `--fast` to remove the
 short pauses between simulated camera/microphone events. `--board` keeps the
 projector and control service alive until `Ctrl-C`.
 

@@ -38,7 +38,7 @@ flowchart LR
     Camera[Local camera and hand raise] --> Compass[Classroom Compass runtime]
     Mic[Local Whisper or Apple Speech] --> Compass
     Compass <--> Harness
-    Compass --> Excalidraw[Excalidraw projector]
+    Compass --> Visuals[Visual Stage or editable Excalidraw projector]
     Model[Responses API] <--> Harness
     Harness --> Board[Legacy schema board]
     Harness --> Server[FastAPI and SQLite]
@@ -65,7 +65,7 @@ The Python harness has five independently configurable layers:
 
 ```text
 apps/
-  classroom-compass/  Camera, speech, headless room loop, and Excalidraw projector
+  classroom-compass/  Camera, speech, headless room loop, Visual Stage, and Excalidraw fallback
   dashboard/          React operator dashboard
   board/              M0 schema-board compatibility projector
 packages/
@@ -139,9 +139,9 @@ until a complete NCTE run and the controlled memory/pedagogy ablations finish.
 The live classroom path is integrated: the learner-aware Python service produces
 validated teaching turns and persistent student notes, while Classroom Compass owns
 local camera/audio processes, interruption queuing, speech output, deterministic
-reviewed tools, and the Excalidraw projector. Its Teacher Brain provider maps fixed
+reviewed tools, and both projector renderers. Its Teacher Brain provider maps fixed
 seat references to teacher-authored roster pseudonyms, calls the interruption API,
-and converts the private board plan into a bounded public Excalidraw scene. See
+and converts the private board plan into a bounded public scene. See
 [`docs/classroom-agent.md`](docs/classroom-agent.md) for the API and the hand-raise
 integration contract. PDF ingestion and photographed-work analysis remain separate
 milestone work.
@@ -188,35 +188,42 @@ npm run verify:m0  # requires the API and board dev servers
 ## Integrated Classroom Quick Start
 
 The M0 Vite board remains for schema compatibility. The live room path uses the
-Excalidraw projector imported from `vision-audio`.
+updated animated Visual Stage imported from `vision-audio`; the editable Excalidraw
+canvas remains available at `/board/excalidraw`.
+
+Install the local RTMPose and Whisper adapters once:
+
+```bash
+npm run setup:room
+```
 
 Start the API and Excalidraw projector in separate terminals:
 
 ```bash
-.venv/bin/python -m uvicorn server.app.main:app --host 127.0.0.1 --port 8000
+.venv/bin/python -m uvicorn server.app.main:app --host 127.0.0.1 --port 8000 --env-file .env
 npm run dev:excalidraw
 ```
 
-Then start the camera/audio runtime with the Teacher Brain provider. Fixed sensor
-references must be mapped to teacher-provided names or pseudonyms; no face identity
-is created.
+Then start the audible camera/audio runtime with a native diagnostic preview:
 
 ```bash
-export CC_TUTOR_PROVIDER=teacher-brain
-export CC_TEACHER_BRAIN_API_URL=http://127.0.0.1:8000
-export CC_TEACHER_BRAIN_ROSTER_JSON='[{"studentRef":"camera-left","name":"Jordan","language":"English"}]'
-npm run dev:classroom
+npm run room:preview
 ```
 
-Open `http://localhost:3000/board` on the projector. Classroom Compass also retains
-its local Ollama mode, deterministic decimal tool, microphone/camera setup commands,
-and full documentation under [`apps/classroom-compass/`](apps/classroom-compass/).
+Open `http://localhost:3000/board` on the projector. The video stays local and is
+shown only in the RTMPose diagnostic window; the browser intentionally receives
+validated diagrams rather than camera frames. The room command defaults to system
+speech, Teacher Brain, a 30-second hand-raise listening gate, and left/right/center
+seat pseudonyms. It uses camera index `0` by default; set `CC_CAMERA_INDEX` when an
+external or virtual camera is the intended source. Override other defaults with the documented `CC_*` environment
+variables. Classroom Compass also retains its local Ollama mode and deterministic
+reviewed tools under [`apps/classroom-compass/`](apps/classroom-compass/).
 
 To rehearse the complete opening → English interruption → resume → Spanish
 interruption → bilingual board → resume flow against the real Teacher Brain API:
 
 ```bash
-npm run demo:teacher-brain -- --board --audio
+npm run demo:teacher-brain -- --board
 ```
 
 See [`docs/demo-flow.md`](docs/demo-flow.md) for the three-terminal setup, default

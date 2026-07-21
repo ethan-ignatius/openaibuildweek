@@ -80,12 +80,12 @@ async function runTeacherBrainDemo() {
     spanishStudent.studentRef,
     flags.has("--fast") ? 1 : 900,
   );
-  const output = flags.has("--audio") ? systemSpeakerForPlatform() : new ConsoleClassroomOutput(false);
+  const output = flags.has("--quiet") ? new ConsoleClassroomOutput(false) : systemSpeakerForPlatform();
   const runtime = new TutorRuntime(store, [sensor], output, provider);
   const control = boardMode ? new ControlServer(runtime, controlPort) : null;
   await control?.start();
   if (boardMode) {
-    process.stdout.write("Open http://localhost:3000/board to watch the live Excalidraw lesson.\n");
+    process.stdout.write("Open http://localhost:3000/board for the Visual Stage or http://localhost:3000/board/excalidraw for the editable canvas.\n");
   }
   await runtime.start({ stopWhenSensorsComplete: !boardMode });
 
@@ -95,7 +95,7 @@ async function runTeacherBrainDemo() {
   process.stdout.write("\nTeacher Brain demo complete\n");
   process.stdout.write(`Opening/resume transitions: ${record.audit.filter((entry) => ["lesson_started", "lesson_resumed"].includes(entry.action)).length}\n`);
   process.stdout.write(`Student interruptions: ${record.events.filter((event) => event.kind === "question_transcribed").length}\n`);
-  process.stdout.write(`Public board scenes: ${record.commands.filter((item) => item.toolId === "excalidraw.renderScene").length}\n`);
+  process.stdout.write(`Public board scenes: ${record.commands.filter((item) => item.kind === "hardware_visual").length}\n`);
   process.stdout.write(`Raw media retained: ${record.rawMediaRetainedBytes} bytes\n`);
   process.stdout.write(`Local session record: ${store.filePath}\n`);
   if (apiSession) {
@@ -170,7 +170,7 @@ function showHelp() {
   process.stdout.write(`Classroom Compass — headless classroom tutor\n\n`);
   process.stdout.write(`Commands:\n`);
   process.stdout.write(`  npm run tutor -- demo [--fast] [--audio] [--board]  Run the complete deterministic decimal lesson\n`);
-  process.stdout.write(`  npm run tutor -- teacher-demo [--fast] [--audio] [--board]  Rehearse the bilingual Teacher Brain flow\n`);
+  process.stdout.write(`  npm run tutor -- teacher-demo [--fast] [--quiet] [--board]  Rehearse the audible bilingual Teacher Brain flow\n`);
   process.stdout.write(`  npm run tutor -- run [--audio]            Run the background service\n`);
   process.stdout.write(`  npm run tutor -- health                   Read local service health\n`);
   process.stdout.write(`  npm run tutor -- pause|resume|stop        Control sensing and output\n`);

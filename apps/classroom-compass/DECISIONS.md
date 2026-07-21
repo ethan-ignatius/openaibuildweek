@@ -18,11 +18,17 @@ For the MacBook trial, a small signed Swift adapter uses Speech and AVFoundation
 
 ## Projector output without a teacher frontend
 
-The service now combines speech with a local Excalidraw projector canvas. `/board` is deliberately only a public classroom surface, not a dashboard. The headless runtime publishes validated scene JSON over its loopback service, while Excalidraw supplies rendering, pen/touch editing, pan, and zoom.
+The service now combines speech with a local projector canvas. `/board` is deliberately only a public classroom surface, not a dashboard. The headless runtime publishes validated scene JSON over its loopback service. A dependency-light SVG Visual Stage is the default because it renders immediately, scales cleanly on a projector, and supports restrained one-shot animation without another model call. Excalidraw remains at `/board/excalidraw` when pen/touch editing, pan, and zoom are more important than presentation polish.
 
 ## Generated concepts plus deterministic drawing primitives
 
-For open-ended questions, the local model generates the explanation, concept labels, and relationships. Deterministic code lays them out as safe Excalidraw text, boxes, ellipses, and arrows. Accuracy-sensitive math representations use deterministic registered tools. This prevents model output from becoming runtime web code or unrestricted canvas operations.
+For open-ended questions, the local model generates the explanation, concept labels, and relationships. Deterministic code lays them out as safe text, boxes, ellipses, and arrows. Both projector renderers consume this same bounded scene contract. Accuracy-sensitive math representations use deterministic registered tools. This prevents model output from becoming runtime web code or unrestricted canvas operations.
+
+The default Visual Stage is designed for grades 4–8. It shows a big idea, a concrete example, a short connected reasoning path, familiar reviewed icons, and one application question. The icon and layout choices are part of the validated scene schema, so this added visual appeal does not add another model request or permit arbitrary drawing code.
+
+Basic operations, decimal comparison, and the negative-times-negative sign pattern bypass the general model and use reviewed deterministic explanations. A live smoke test showed that the small local model could produce a mathematically invalid debt analogy; the reviewed layer prevents that class of foundational arithmetic error while leaving open-ended subjects extensible.
+
+Each generated answer can now carry a bounded comprehension contract: one prompt, expected ideas, acceptable short answers, a hint, and a corrective explanation. Exact reviewed answers are checked deterministically; open-ended replies use a separate schema-constrained local assessment. Feedback uses four temporary interaction states—correct, partly correct, off track, or unclear—but none becomes a grade or permanent profile label. The student gets at most one retry before a supportive re-teach, preventing an autonomous dialogue loop.
 
 ## Evidence, not labels
 

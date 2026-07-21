@@ -9,4 +9,4 @@ if [ ! -x "$environment_dir/bin/python" ]; then
   "$python_command" -m venv "$environment_dir"
 fi
 "$environment_dir/bin/python" -m pip install --upgrade "rtmlib==0.0.15"
-"$environment_dir/bin/python" -c 'from rtmlib import Body; Body(mode="balanced", backend="onnxruntime", device="cpu"); print("RTMPose-m and YOLOX-m are ready.")'
+"$environment_dir/bin/python" -c 'from rtmlib import Wholebody; Wholebody(mode="lightweight", backend="onnxruntime", device="cpu"); print("Multi-person RTMW-m whole-body and YOLOX-tiny are ready.")'

@@ -13,13 +13,13 @@ test("decimal misconception → visual bridge → comprehension check → teache
   await teacher.getByTestId("launch-proposal-decimals").click();
 
   await expect(display.getByTestId("bridge-stage-1")).toBeVisible();
-  await display.getByRole("button", { name: "Next" }).click();
+  await display.getByRole("button", { name: "Next", exact: true }).click();
   await expect(display.getByTestId("bridge-stage-2")).toBeVisible();
   await display.getByRole("button", { name: "Reveal 35 hundredths" }).click();
   await display.getByRole("button", { name: "Reveal 40 hundredths" }).click();
-  await display.getByRole("button", { name: "Next" }).click();
+  await display.getByRole("button", { name: "Next", exact: true }).click();
   await expect(display.getByTestId("bridge-stage-3")).toBeVisible();
-  await display.getByRole("button", { name: "Next" }).click();
+  await display.getByRole("button", { name: "Next", exact: true }).click();
   await expect(display.getByTestId("bridge-stage-4")).toBeVisible();
   await display.getByTestId("answer-0.35").click();
   await expect(display.getByText("Hint: compare tenths first.", { exact: false })).toBeVisible();

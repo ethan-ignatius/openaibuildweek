@@ -1,6 +1,6 @@
-# Classroom Compass — headless classroom tutor with an Excalidraw projector
+# Classroom Compass — headless classroom tutor with a visual projector
 
-Classroom Compass is a background classroom service connected to local camera and microphone pipelines. It transcribes a question, asks a local reasoning model for a concise teaching response and visual plan, validates that plan, draws it on a local Excalidraw projector, and speaks the explanation.
+Classroom Compass is a background classroom service connected to local camera and microphone pipelines. It transcribes a question, asks a local reasoning model for a concise teaching response and visual plan, validates that plan, renders it on a local projector, and speaks the explanation.
 
 It does **not** require a teacher dashboard. The only browser surface required for visual output is the full-screen `/board` canvas running on the projector or interactive whiteboard. The existing teacher-facing web prototype remains optional legacy/demo code.
 
@@ -13,7 +13,7 @@ headless sensor adapters
         ↓ sanitized, untrusted transcript
 reviewed computation tool, local Ollama model, or Teacher Brain
         ↓ schema-validated answer + visual plan
-local Excalidraw projector + speaker
+local animated Visual Stage + speaker
         ↓ optional follow-up question
 microphone transcript
         ↓
@@ -27,13 +27,19 @@ The live voice path is not limited to known question strings or decimal values. 
 - “What is the difference between area and perimeter?”
 - “Why was the water cycle important to early settlements?”
 
-For open-ended questions, the model creates the answer and a small concept/sequence/comparison plan. Classroom Compass—not the model—lays out the validated nodes and arrows in Excalidraw. Recognized decimal comparisons are routed through a reviewed computation tool before the language model, so arithmetic is calculated rather than guessed. That tool accepts arbitrary values from 0 to 1; it is not a table of question-and-answer strings. The showcase prompt is:
+The default teaching voice targets grades 4–8: a direct answer, two or three connected reasoning steps, one concrete example or mental picture, and a short application question. Set `CC_GRADE_BAND` to supply a different teacher-selected learner band. The system avoids baby talk while defining necessary school vocabulary in plain language.
+
+After an explanation, the tutor keeps one bounded comprehension check active. It compares the student’s reply with explicit expected ideas and reviewed acceptable answers. A correct reply receives brief confirmation; a partly correct or off-track reply receives specific feedback, one clue, and one retry. After two attempts, the tutor re-teaches the idea and returns control instead of looping. The interaction records no grade, permanent mastery claim, or student label, and the public feedback scene does not display the raw reply or a student identity.
+
+For open-ended questions, the model creates the answer and a small concept/sequence/comparison plan. Classroom Compass—not the model—lays out the validated nodes and arrows. Recognized decimal comparisons are routed through a reviewed computation tool before the language model, so arithmetic is calculated rather than guessed. That tool accepts arbitrary values from 0 to 1; it is not a table of question-and-answer strings. The showcase prompt is:
 
 > “Why is 0.35 not bigger than 0.4? Thirty-five is bigger than four.”
 
 It draws `0.4 = 0.40`, a place-value chart, two exact 10×10 hundred grids, and a number line. It compares the tenths, asks which value is greater, updates the canvas with one hint if needed, and ends with cautious follow-up language. It never claims that the student has permanently mastered—or is “bad at”—decimals.
 
-## Run the Excalidraw demonstration
+Common arithmetic expressions and the negative-times-negative sign rule also use a reviewed deterministic reasoning layer. It computes new operands at runtime and builds equal-group, operation, or continuing-pattern explanations. Other school questions continue through the local model. This split keeps foundational calculations reliable without turning the tutor into a fixed question list.
+
+## Run the projected visual demonstration
 
 Start the projector-only canvas:
 
@@ -48,9 +54,9 @@ Open the URL printed by that command, normally `http://localhost:3000/board`, on
 npm run tutor -- demo --board
 ```
 
-The simulated microphone question triggers the reviewed decimal policy. The headless service publishes three Excalidraw scenes—explanation, retry hint, and completion—to the loopback-only control service. The demo remains available until `Ctrl-C`.
+The simulated microphone question triggers the reviewed decimal policy. The headless service publishes three validated scenes—explanation, retry hint, and completion—to the loopback-only control service. The default `/board` route renders them as lightweight, animated SVG. It does not make a second model or layout request, so visual updates appear as soon as the validated scene arrives. The demo remains available until `Ctrl-C`.
 
-The Excalidraw toolbar remains available for touch, pen, or mouse additions. Tutor updates replace only the tutor scene; teacher/student drawing persistence and layer ownership are not yet implemented.
+For freehand touch, pen, pan, and zoom, open `http://localhost:3000/board/excalidraw`. It consumes the same safe scene payload and remains available as an editable fallback. Tutor updates replace the current tutor scene; persistent teacher/student drawing layers are not yet implemented.
 
 ## Use the learner-aware Teacher Brain
 
@@ -99,7 +105,7 @@ npm install
 npm run tutor:demo
 ```
 
-Expected output includes the Excalidraw scene commands, six short tutor messages, one retry hint, one observed-result record, and:
+Expected output includes the validated scene commands, six short tutor messages, one retry hint, one observed-result record, and:
 
 ```text
 Raw media retained: 0 bytes
@@ -138,13 +144,15 @@ On the first run, allow **Microphone** when macOS asks. Wait for `Classroom Comp
 
 > Why is zero point three five not bigger than zero point four? Thirty-five is bigger than four.
 
-Pause for about two seconds. The Excalidraw explanation should appear. After the comprehension prompt, say:
+Pause for about two seconds. The animated explanation should appear. After the comprehension prompt, say:
 
 > Zero point four zero is greater.
 
 You can instead ask a different educational question. The live service uses the local Ollama model rather than matching it against prewritten questions. The first model response may take roughly 5–20 seconds on a small laptop; the board displays a thinking state immediately.
 
 Follow-up utterances retain the recent student/tutor conversation. If a student begins speaking while an answer is finishing, up to three turns are queued instead of discarded. Transcripts that closely match current speaker output are ignored as probable acoustic echo. Because speech recognition can still omit decimal points, medium- or low-confidence contradictory math transcripts now receive a clarification question; the tutor does not confidently solve the misheard expression. The macOS adapter also passes segment-level recognition alternatives to the tutor when Apple provides them.
+
+The live runtime treats one spoken question as one turn. It removes complete or truncated fragments of recent tutor loudspeaker output from rolling Whisper windows, preserves any student words that followed the prompt, and ignores a repeated transcript instead of queueing it as a new question. The visual board may show a thinking state while the local model runs, but the speaker no longer says “Let me think about that,” which avoids feeding filler back into the microphone. Model answers are instructed to explain the representation or intermediate step before the result; a bare `spokenAnswer` is replaced with the fuller validated explanation when available.
 
 The default trial prints tutor speech to Terminal to prevent the laptop speakers from feeding back into the microphone. If you use headphones, spoken output can be enabled with:
 
@@ -158,9 +166,18 @@ Useful local Whisper tuning:
 
 ```bash
 CC_WHISPER_VAD_THRESHOLD=0.45 npm run voice:run  # more sensitive in a quiet room
-CC_WHISPER_CAPTURE_ID=0 npm run voice:run       # choose a listed capture device
+CC_WHISPER_CAPTURE_NAME="Logitech Webcam C925e" npm run voice:run  # stable across reconnects
+CC_WHISPER_CAPTURE_ID=1 npm run voice:run       # explicit numeric override
 CC_WHISPER_UTTERANCE_GAP_MS=3000 npm run voice:run
 ```
+
+If a microphone opens but produces no transcript, run the ephemeral input meter and speak for ten seconds:
+
+```bash
+npm run voice:meter
+```
+
+The meter reads live RMS/peak levels and immediately discards the samples; it never writes audio. Normal speech should visibly move the bars, commonly above roughly `-45 dB RMS`. A flat `-90 dB` indicates muted or unavailable input below the transcription layer; close Teams or other conferencing software, check its mute state, reconnect the USB camera, and retry the meter.
 
 The older Apple Speech adapter remains available as an explicit fallback:
 
@@ -173,7 +190,7 @@ Apple Speech requires both Microphone and Speech Recognition permission. Network
 
 ## Trial with a conference-room camera and microphone
 
-The macOS camera adapter uses AVFoundation and Vision locally. It detects either a wrist held above its corresponding shoulder or a sustained open palm when the camera framing is too close to show a full torso. It emits only a debounced `hand_raise` event and a rough left/center/right camera zone. It does not identify faces, infer attention or emotion, save frames, or record video.
+The local multi-person camera adapter uses RTMW whole-body landmarks. A raise requires an upward-pointing arm, an open hand with at least three extended fingers, and five confirming frames. A sideways or briefly flared arm should not qualify. It emits only a debounced `hand_raise` event and a rough left/center/right camera zone. It does not identify faces, infer attention or emotion, save frames, or record video.
 
 Build the adapter once:
 
@@ -209,7 +226,7 @@ Then open the small live diagnostic window:
 npm run camera:preview
 ```
 
-The preview draws every detected pose, fixed left/center/right seat regions, the current hand-raise state, pose count, and measured FPS. A raise is emitted only after a wrist remains above its matching shoulder across several frames; lowering the hand resets the detector. The current conference-room preset uses OpenCV camera index `1`. Press `Q` or `Esc` in the window to close the preview and service.
+The preview draws every detected pose, fixed left/center/right seat regions, open-hand landmarks for a confirmed raise, pose count, and measured FPS. A raise is emitted only after the open-palm gesture remains stable across several frames; lowering the hand resets the detector. The current conference-room preset uses OpenCV camera index `1`. Press `Q` or `Esc` in the window to close the preview and service.
 
 To run the same preview together with the local Whisper microphone and tutor, use:
 
@@ -219,7 +236,9 @@ npm run room:preview
 
 The combined command keeps running until `Ctrl-C` so the microphone remains active if the preview window is closed. Custom fixed seat polygons can be based on `config/seat-regions.example.json` and passed to the adapter with `--regions`. All inference is local; frames remain in memory, no face identity is created, and raw media saved remains zero.
 
-The current room preset selects camera `IC840 1080P HD` and Whisper capture device `0` (`Audio Streaming`). Device numbering can change after reconnecting hardware, so confirm the capture list printed at startup. The camera must be able to see either the raised hand or the student’s shoulders and wrist; a head-only crop cannot support a shoulder-relative hand raise.
+The current room preset resolves the microphone using the ordered aliases `Logitech Webcam C925e|Audio Streaming|MacBook Air Microphone|Microsoft Teams Audio`. It prefers the intended conference hardware when connected and falls back to the built-in Mac input before a virtual Teams device. This avoids silently switching microphones when macOS renumbers devices or changes the advertised hardware label. Startup prints the resolved microphone name and capture number. Override it with `CC_WHISPER_CAPTURE_NAME="preferred name|fallback name" npm run room:preview`; use `CC_WHISPER_CAPTURE_ID` only as an explicit numeric override. The camera must see the student’s shoulders, elbow, wrist, and raised palm; a head-only crop cannot confirm the gesture.
+
+Room mode uses two-second rolling transcription windows instead of waiting for a clean voice-activity transition, which is more dependable when a busy room never becomes fully quiet. A 30-second called-on gate discards transcripts outside a confirmed hand-raise turn rather than storing or answering them. The first usable transcript after a confirmed raise is associated with the raised seat zone by turn-taking; this is not speaker recognition and the system makes no biometric identity claim. Follow-up answers remain in the same short turn. A single webcam microphone still cannot acoustically isolate one person from nearby voices—reliable speaker isolation requires directional/beamforming room hardware.
 
 ### Local Ollama tutor model
 
@@ -238,12 +257,13 @@ CC_TUTOR_MODEL=qwen3:4b             # choose an installed Ollama model
 CC_OLLAMA_URL=http://127.0.0.1:11434
 CC_TUTOR_TIMEOUT_MS=35000
 CC_TUTOR_PROVIDER=none              # disable open-ended model answers; reviewed tools still work
+CC_GRADE_BAND="grades 4-8"           # teacher-selected explanation level
 ```
 
 Set `CC_TUTOR_PROVIDER=teacher-brain` to use the learner-aware Python service
 described above. `ollama` remains the implicit default for standalone use.
 
-The model receives sanitized transcript text and recent text conversation context—not raw microphone audio, video, student profiles, shell access, browser access, or unrestricted Excalidraw control.
+The model receives sanitized transcript text and recent text conversation context—not raw microphone audio, video, student profiles, shell access, browser access, or unrestricted board control.
 
 ## Run as a background service
 
@@ -298,6 +318,7 @@ Malformed events, unknown event kinds, and instruction-shaped classroom speech c
 - `headless/cli.ts` — primary command-line entry point
 - `headless/core/tutor-runtime.ts` — autonomous event loop, pause/stop, output, and observed evidence
 - `headless/policies/decimal-tutor-policy.ts` — reviewed decimal lesson and comprehension-check policy
+- `headless/policies/arithmetic-tutor-policy.ts` — computed arithmetic explanations and reviewed sign-pattern reasoning
 - `headless/reasoning/tutor-provider.ts` — provider-neutral tutor interface and provider selection
 - `headless/reasoning/teacher-brain-provider.ts` — learner-aware Python API adapter and strict response validation
 - `headless/adapters/json-line-sensor.ts` — local camera/microphone subprocess bridge
@@ -307,7 +328,8 @@ Malformed events, unknown event kinds, and instruction-shaped classroom speech c
 - `headless/whiteboard/excalidraw-tool.ts` — validated public scene schema, deterministic decimal scene, and bounded agent-drawing tool
 - `headless/storage/local-event-store.ts` — atomic, permission-restricted local session records
 - `headless/control/control-server.ts` — loopback-only operational control
-- `app/board/page.tsx` and `components/board/` — projector-only local Excalidraw renderer
+- `components/board/VisualStageProjector.tsx` — default low-latency, accessible animated SVG renderer
+- `app/board/excalidraw/page.tsx` — editable Excalidraw fallback over the same public scene contract
 - `tests/headless/` — policy, integration, retention, and process-cleanup tests
 
 ## Autonomy boundaries
@@ -316,7 +338,7 @@ The independent tutor can respond to general educational questions through the c
 
 Medical, legal, mental-health, personal-safety, disciplinary, and other high-stakes questions are instructed to defer to a trusted adult or qualified source. Questions requiring live/current information are also deferred because the local model has no browsing tool. Classroom speech remains untrusted data and cannot change the system prompt or unlock tools.
 
-Every model response must match a strict answer/visual schema. Invalid responses are rejected. The model supplies bounded labels and relationships; deterministic code creates the actual Excalidraw elements. Reviewed computation tools run before the model for concepts they support. If Ollama is unavailable, those tools continue to work, while unsupported open-ended questions receive an availability notice rather than a fabricated answer.
+Every model response must match a strict answer/visual schema. Invalid responses are rejected. The model supplies bounded labels and relationships; deterministic code creates the actual scene elements. Reviewed computation tools run before the model for concepts they support. If Ollama is unavailable, those tools continue to work, while unsupported open-ended questions receive an availability notice rather than a fabricated answer.
 
 The temporary instructional hypothesis used to choose a response is not saved as permanent evidence. The saved statement is limited to what was observed after the interaction.
 
@@ -353,6 +375,7 @@ The broader legacy test suite remains available with `npm run test:unit`. The op
 - The local model cannot verify current events or browse sources and may still make factual mistakes. Its structured response validation controls shape and tool safety, not truthfulness.
 - Generated visuals are currently bounded concept maps made from model-supplied nodes and connections. Arbitrary freehand strokes and specialized diagrams require additional reviewed tool schemas.
 - Tutor scene updates currently replace the scene. Persistent teacher/student canvas layers are a next step.
+- The default Visual Stage intentionally favors fast, polished tutor-authored diagrams over freehand editing. The `/board/excalidraw` fallback is available when live drawing matters more.
 - `npm audit --omit=dev` currently reports transitive advisories in Excalidraw's bundled Mermaid parser chain (including one high-severity `lodash-es` advisory) plus the retained Next.js dependency. Classroom Compass does not invoke Mermaid parsing, but these advisories must be resolved or formally assessed before production deployment. The audit-recommended older Excalidraw release is incompatible with this project's React 19 dependency.
 - The local JSON store is appropriate for a single-device prototype, not multi-classroom deployment.
 - The control API is operational and loopback-only, not an authenticated remote administration plane.

@@ -1,4 +1,4 @@
-# Classroom Compass — headless tutor + Excalidraw demo
+# Classroom Compass — headless tutor + Visual Stage demo
 
 ## One-command demonstration
 
@@ -26,7 +26,7 @@ Open the `/board` URL printed in Terminal 1 and make it full screen. This is a p
 1. Explain that camera and microphone processing run as local device adapters. They send structured observations—not stored media—to the headless tutor.
 2. Run `npm run tutor:demo`.
 3. Point out the fictional question about `0.35` and `0.4` is handled by a reviewed decimal policy, not an unrestricted chatbot.
-4. Excalidraw receives a public-only scene: `0.4 = 0.40`, a place-value chart, exact hundred grids, and a number line. No student reference or private interpretation is present.
+4. The Visual Stage receives a public-only scene: `0.4 = 0.40`, a place-value chart, exact hundred grids, and a number line. Shapes and connections enter once to guide attention. No student reference or private interpretation is present.
 5. The tutor speaks the alternative representation while the fixture answers incorrectly once. The canvas and speaker provide one hint.
 6. The second response is correct. The canvas says to check independently later instead of claiming mastery.
 7. Highlight the final output: one observed evidence record and zero bytes of raw media retained.
@@ -60,6 +60,8 @@ npm run voice:build
 npm run voice:run
 ```
 
-Allow the macOS Microphone and Speech Recognition permissions. Ask any educational question, remain quiet for about two seconds, and watch the thinking scene followed by the model-generated Excalidraw explanation. Good examples include “Why is the sky blue?”, “How does photosynthesis work?”, and “What is the difference between area and perimeter?” Keep speaker output disabled unless using headphones so the transcriber does not hear the tutor itself.
+Allow the macOS Microphone and Speech Recognition permissions. Ask any educational question, remain quiet for about two seconds, and watch the thinking scene followed by the generated Visual Stage explanation. Good examples include “Why is the sky blue?”, “How does photosynthesis work?”, and “What is the difference between area and perimeter?” Keep speaker output disabled unless using headphones so the transcriber does not hear the tutor itself.
+
+The default board prioritizes presentation speed and clarity. Open `/board/excalidraw` instead when you want to add freehand marks with a pen, touch, or mouse.
 
 The live path is not a hard-coded question matcher: open-ended questions use the local Ollama model. Recognized decimal comparisons use a general reviewed computation tool over the spoken values, keeping the showcase arithmetic reliable without storing fixed question-and-answer pairs.
