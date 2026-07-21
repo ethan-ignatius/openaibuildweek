@@ -418,6 +418,18 @@ def test_number_line_without_optional_labels_matches_shared_schema() -> None:
     assert "label" not in action["marks"][0]
 
 
+def test_teaching_turn_schema_uses_responses_api_compatible_arrays_and_unions() -> None:
+    schema = TeachingTurnPlan.model_json_schema()
+    action_items = schema["properties"]["board_actions"]["items"]
+    domain = schema["$defs"]["PlotFunctionAction"]["properties"]["domain"]
+
+    assert "anyOf" in action_items
+    assert "oneOf" not in action_items
+    assert domain["items"] == {"type": "number"}
+    assert "prefixItems" not in domain
+    assert domain["minItems"] == domain["maxItems"] == 2
+
+
 def test_interruption_contract_requires_a_full_board_wipe() -> None:
     plan = TeachingTurnPlan.model_validate(
         {

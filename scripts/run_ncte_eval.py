@@ -189,7 +189,7 @@ def _condition_config(condition: str, state_directory: Path) -> HarnessConfig:
     common = {
         "state_directory": state_directory,
         "journal_directory": state_directory,
-        "model": os.getenv("OPENAI_MODEL", "gpt-5.6"),
+        "model": os.getenv("OPENAI_MODEL", "gpt-5.6-sol"),
     }
     if condition == "bare":
         return HarnessConfig(

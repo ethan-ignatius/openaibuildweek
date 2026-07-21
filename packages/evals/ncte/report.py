@@ -32,7 +32,7 @@ def write_ncte_report(
     status_detail: str,
     turn_results: Mapping[str, BinaryMetrics] | None = None,
     score_results: Mapping[str, tuple[int, float]] | None = None,
-    model: str = "gpt-5.6",
+    model: str = "gpt-5.6-sol",
     condition: str = "full",
     usage: TokenUsage = TokenUsage(),
 ) -> None:
