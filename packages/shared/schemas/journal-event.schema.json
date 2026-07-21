@@ -25,6 +25,7 @@
         "session.started",
         "session.resumed",
         "session.interrupted",
+        "participation.recommended",
         "session.ended"
       ]
     },

@@ -11,6 +11,7 @@
     "start": "tsx headless/cli.ts run",
     "tutor": "tsx headless/cli.ts",
     "tutor:demo": "tsx headless/cli.ts demo --fast",
+    "teacher:demo": "tsx headless/cli.ts teacher-demo",
     "board:dev": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext dev",
     "board:build": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext build",
     "board:start": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext start",

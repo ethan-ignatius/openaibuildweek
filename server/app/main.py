@@ -16,10 +16,12 @@ from packages.harness.teacher_brain import (
     ClassroomSessionView,
     InterruptionRequest,
     LearnerMemoryView,
+    ParticipationRecommendation,
     StartClassroomRequest,
     StudentNotFoundError,
     TeachRequest,
     TeacherBrain,
+    TeacherBrainError,
     TeachingTurnResult,
 )
 from packages.shared.schema import SharedSchemaError, validate_payload
@@ -147,10 +149,32 @@ async def interrupt_classroom_turn(
         ClassroomNotFoundError,
         ClassroomConflictError,
         StudentNotFoundError,
+        TeacherBrainError,
         LearnerMemoryError,
         ModelClientError,
         OpenAIError,
         SharedSchemaError,
+    ) as error:
+        raise _teacher_http_error(error) from error
+
+
+@app.get(
+    "/api/teacher/sessions/{session_id}/participation-recommendation",
+    response_model=ParticipationRecommendation,
+)
+async def recommend_classroom_participant(
+    session_id: str,
+    brain: TeacherBrainDependency,
+    concept: str | None = None,
+) -> ParticipationRecommendation:
+    try:
+        return await brain.recommend_student(session_id, concept=concept)
+    except (
+        ClassroomNotFoundError,
+        ClassroomConflictError,
+        StudentNotFoundError,
+        TeacherBrainError,
+        LearnerMemoryError,
     ) as error:
         raise _teacher_http_error(error) from error
 

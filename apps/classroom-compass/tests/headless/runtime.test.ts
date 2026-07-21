@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ConsoleClassroomOutput } from "../../headless/adapters/classroom-output";
 import { FixtureSensorAdapter } from "../../headless/adapters/fixture-sensor";
 import { TutorRuntime } from "../../headless/core/tutor-runtime";
-import type { HeadlessEvent, SensorAdapter } from "../../headless/core/types";
+import type { ClassroomOutputAdapter, HeadlessEvent, SensorAdapter, TutorCommand } from "../../headless/core/types";
 import type { TutorAnswerProvider } from "../../headless/reasoning/tutor-provider";
 import { LocalEventStore, newSessionRecord } from "../../headless/storage/local-event-store";
 
@@ -119,6 +119,60 @@ describe("headless tutor runtime", () => {
     await runtime.stop();
   });
 
+  it("stops interruptible lesson speech before acknowledging a hand raise", async () => {
+    const store = await storeFor("session-spoken-interruption-test");
+    const delivered: TutorCommand[] = [];
+    let releaseOpening!: () => void;
+    const cancel = vi.fn(async () => releaseOpening?.());
+    const output: ClassroomOutputAdapter = {
+      id: "blocking-classroom-output",
+      deliver: vi.fn(async (command: TutorCommand) => {
+        delivered.push(command);
+        if (command.text === "Opening explanation") {
+          await new Promise<void>((resolve) => { releaseOpening = resolve; });
+        }
+      }),
+      cancel,
+      close: vi.fn(async () => {}),
+    };
+    const provider: TutorAnswerProvider = {
+      id: "interruptible-lesson-fixture",
+      answer: vi.fn(async () => { throw new Error("No question expected"); }),
+      beginLesson: vi.fn(async () => ({
+        disposition: "answer" as const,
+        answer: "Opening explanation",
+        spokenAnswer: "Opening explanation",
+        visual: { title: "Opening lesson", nodes: [], connections: [] },
+        followUpQuestion: "What do you notice?",
+        provider: "fixture",
+        model: "fixture",
+        language: "en" as const,
+      })),
+      languageForStudent: () => "en",
+    };
+    const runtime = new TutorRuntime(store, [], output, provider);
+    const starting = runtime.start();
+    await vi.waitFor(() => expect(delivered.some((command) => command.text === "Opening explanation")).toBe(true));
+    await runtime.handleEvent({
+      id: "interrupting-hand",
+      sessionId: "session-spoken-interruption-test",
+      kind: "hand_raise",
+      source: "live",
+      occurredAt: new Date().toISOString(),
+      studentRef: "seat-english",
+      payload: { seat: "camera-left" },
+      provenance: { adapter: "fixture-camera", version: "1", confidenceBand: "high" },
+    });
+    await starting;
+
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(delivered.some((command) => command.text?.includes("Go ahead with your question"))).toBe(true);
+    expect(delivered.some((command) => command.text === "What do you notice?")).toBe(false);
+    expect(runtime.snapshot().audit.some((entry) => entry.action === "lesson_speech_interrupted")).toBe(true);
+    expect(runtime.snapshot().audit.some((entry) => entry.action === "lesson_start_interrupted")).toBe(true);
+    await runtime.stop();
+  });
+
   it("serializes simultaneous sensor events without losing the tutoring action", async () => {
     const store = await storeFor("session-concurrent-voice-test");
     const output = new ConsoleClassroomOutput(true);
@@ -223,12 +277,100 @@ describe("headless tutor runtime", () => {
 
     expect(provider.answer).toHaveBeenCalledWith(expect.objectContaining({
       studentRef: "seat-a2",
-    }));
+    }), expect.any(AbortSignal));
     expect(runtime.publicBoardState()).toMatchObject({
       sceneId: "teacher-brain-2",
       source: "agent-drawing",
     });
     expect(JSON.stringify(runtime.publicBoardState())).toContain("1/2");
+    await runtime.stop();
+  });
+
+  it("starts the lesson, gives a bilingual interruption answer, and resumes explicitly", async () => {
+    const store = await storeFor("session-teacher-brain-lifecycle-test");
+    const output = new ConsoleClassroomOutput(true);
+    const plan = (label: string, bilingual = false) => ({
+      board_actions: [
+        { type: "board.clear" as const, region: "all" as const },
+        { type: "board.write_text" as const, region: "center" as const, text: label, element_id: label.toLowerCase().replaceAll(" ", "-") },
+      ],
+      narration_segments: bilingual
+        ? [
+            { text: "Un medio y dos cuartos cubren la misma cantidad.", language: "Spanish", highlight_element_id: label.toLowerCase().replaceAll(" ", "-") },
+            { text: "In English: one half and two fourths cover the same amount.", language: "English", highlight_element_id: label.toLowerCase().replaceAll(" ", "-") },
+          ]
+        : [{ text: label, language: "English", highlight_element_id: label.toLowerCase().replaceAll(" ", "-") }],
+      check_for_understanding: bilingual ? "¿Qué cantidad cubren?" : "What do you notice?",
+      pedagogical_rationale: "Use a visual comparison.",
+      resume_guidance: "Return to the fraction bar lesson.",
+    });
+    const beginLesson = vi.fn(async () => ({
+      disposition: "answer" as const,
+      answer: "Opening lesson",
+      spokenAnswer: "Opening lesson",
+      visual: { title: "Fractions", nodes: [], connections: [] },
+      followUpQuestion: "What do you notice?",
+      provider: "teacher-brain-fixture",
+      model: "fixture",
+      language: "en" as const,
+      boardPlan: plan("Opening lesson"),
+    }));
+    const answer = vi.fn(async () => ({
+      disposition: "answer" as const,
+      answer: "Un medio equivale a dos cuartos.",
+      spokenAnswer: "Un medio equivale a dos cuartos.",
+      spokenSegments: [
+        { text: "Un medio y dos cuartos cubren la misma cantidad.", language: "es" as const },
+        { text: "In English: one half and two fourths cover the same amount.", language: "en" as const },
+      ],
+      visual: { title: "Fractions", nodes: [], connections: [] },
+      followUpQuestion: "¿Qué cantidad cubren?",
+      provider: "teacher-brain-fixture",
+      model: "fixture",
+      language: "es" as const,
+      boardPlan: plan("Bilingual explanation", true),
+      providerMetadata: { resumeGuidance: "Return to the fraction bar lesson." },
+    }));
+    const resumeLesson = vi.fn(async () => ({
+      disposition: "answer" as const,
+      answer: "Now let’s return to the fraction bars.",
+      spokenAnswer: "Now let’s return to the fraction bars.",
+      visual: { title: "Fractions", nodes: [], connections: [] },
+      followUpQuestion: "Which pair should we compare next?",
+      provider: "teacher-brain-fixture",
+      model: "fixture",
+      language: "en" as const,
+      boardPlan: plan("Resumed lesson"),
+    }));
+    const provider: TutorAnswerProvider = {
+      id: "teacher-brain-fixture",
+      beginLesson,
+      answer,
+      resumeLesson,
+      languageForStudent: () => "es",
+    };
+    const runtime = new TutorRuntime(store, [], output, provider);
+    await runtime.start();
+    await runtime.handleEvent({
+      id: "spanish-question",
+      sessionId: "session-teacher-brain-lifecycle-test",
+      kind: "question_transcribed",
+      source: "simulated",
+      occurredAt: new Date().toISOString(),
+      studentRef: "seat-spanish",
+      payload: { text: "¿Por qué un medio es igual a dos cuartos?" },
+      provenance: { adapter: "fixture", version: "1", confidenceBand: "high" },
+    });
+
+    expect(beginLesson).toHaveBeenCalledOnce();
+    expect(answer).toHaveBeenCalledWith(expect.objectContaining({ studentRef: "seat-spanish" }), expect.any(AbortSignal));
+    expect(resumeLesson).toHaveBeenCalledWith(expect.objectContaining({
+      resumeGuidance: "Return to the fraction bar lesson.",
+    }), expect.any(AbortSignal));
+    expect(output.delivered.some((command) => command.language === "es" && command.text?.startsWith("Un medio"))).toBe(true);
+    expect(output.delivered.some((command) => command.language === "en" && command.text?.startsWith("In English"))).toBe(true);
+    expect(JSON.stringify(output.delivered)).toContain("English recap");
+    expect(runtime.snapshot().audit.some((entry) => entry.action === "lesson_resumed")).toBe(true);
     await runtime.stop();
   });
 

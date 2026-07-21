@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 from packages.harness.config import HarnessConfig
 from packages.harness.journal import JournalReader
 from packages.harness.learner_memory import LearnerMemory
-from packages.harness.model_client import ModelResult, TokenUsage, ToolRunResult
+from packages.harness.model_client import ModelClientError, ModelResult, TokenUsage, ToolRunResult
 from packages.harness.teacher_brain import (
     ClassroomConflictError,
     ClassroomStudent,
@@ -61,6 +61,11 @@ class FakeClassroomClient:
                         {
                             "text": "Tres cuartos significa tres de cuatro partes iguales.",
                             "language": "Spanish",
+                            "highlight_element_id": "three-fourths",
+                        },
+                        {
+                            "text": "Briefly in English: three fourths means three of four equal parts.",
+                            "language": "English",
                             "highlight_element_id": "three-fourths",
                         }
                     ],
@@ -174,6 +179,7 @@ async def test_teacher_brain_teaches_interrupts_remembers_and_replays(
     assert interruption_turn.kind == "interruption"
     assert interruption_turn.plan.board_actions[0].type == "board.clear"
     assert interruption_turn.plan.narration_segments[0].language == "Spanish"
+    assert interruption_turn.plan.narration_segments[1].language == "English"
     assert [action["type"] for action in board.actions] == [
         "board.clear",
         "board.write_math",
@@ -207,6 +213,94 @@ async def test_teacher_brain_teaches_interrupts_remembers_and_replays(
     assert ended.status == "ended"
     with pytest.raises(ClassroomConflictError):
         await brain.teach(session.session_id, TeachRequest())
+
+
+@pytest.mark.asyncio
+async def test_participation_recommendation_uses_session_and_documented_evidence(
+    tmp_path: Path,
+) -> None:
+    brain, _board, _client = make_brain(tmp_path)
+    session = brain.start_session(
+        StartClassroomRequest(
+            topic="Equivalent fractions",
+            objective="Explain a fraction as equal parts of one whole.",
+            students=[
+                ClassroomStudent(name="Jordan", language="Spanish"),
+                ClassroomStudent(name="Riley", language="English"),
+            ],
+        )
+    )
+
+    first = await brain.recommend_student(session.session_id)
+    assert first.student == "Jordan"
+    assert first.reason == "has_not_spoken"
+
+    await brain.interrupt(
+        session.session_id,
+        InterruptionRequest(
+            student="Jordan",
+            question="How do equal parts relate to the denominator?",
+        ),
+    )
+    quiet_student = await brain.recommend_student(session.session_id)
+    assert quiet_student.student == "Riley"
+    assert quiet_student.reason == "has_not_spoken"
+
+    concept_support = await brain.recommend_student(
+        session.session_id,
+        concept="equal parts",
+    )
+    assert concept_support.student == "Jordan"
+    assert concept_support.reason == "concept_support"
+    assert "without publicly labeling" in concept_support.evidence
+
+
+@pytest.mark.asyncio
+async def test_spanish_interruption_fails_closed_without_english_recap(
+    tmp_path: Path,
+) -> None:
+    class MonolingualClient(FakeClassroomClient):
+        def generate_structured(self, **kwargs: Any) -> ModelResult[TeachingTurnPlan]:
+            result = super().generate_structured(**kwargs)
+            if "A student interrupted" not in kwargs["user_prompt"]:
+                return result
+            plan = result.parsed.model_copy(
+                update={"narration_segments": result.parsed.narration_segments[:1]}
+            )
+            return ModelResult(
+                parsed=plan,
+                usage=result.usage,
+                latency_ms=result.latency_ms,
+                response_id=result.response_id,
+            )
+
+    client = MonolingualClient()
+    brain = TeacherBrain(
+        board_dispatcher=RecordingBoard(),
+        config=HarnessConfig(
+            state_directory=tmp_path / "state",
+            journal_directory=tmp_path / "journals",
+        ),
+        client_factory=lambda _config, _journal: client,
+    )
+    session = brain.start_session(
+        StartClassroomRequest(
+            topic="Fractions",
+            objective="Explain equivalent fractions.",
+            students=[ClassroomStudent(name="Sofia", language="Spanish")],
+        )
+    )
+
+    with pytest.raises(RuntimeError, match="brief English recap"):
+        await brain.interrupt(
+            session.session_id,
+            InterruptionRequest(
+                student="Sofia",
+                question="¿Por qué un medio es igual a dos cuartos?",
+            ),
+        )
+    assert brain.get_session(session.session_id).status == "active"
+    assert len(client.structured_calls) == 2
 
 
 def test_teacher_brain_fastapi_surface(tmp_path: Path) -> None:
@@ -249,6 +343,14 @@ def test_teacher_brain_fastapi_surface(tmp_path: Path) -> None:
             memory = http.get("/api/teacher/students/Jordan/memory")
             assert memory.status_code == 200
             assert "Observed misconceptions" in memory.json()["markdown"]
+
+            recommendation = http.get(
+                f"/api/teacher/sessions/{session_id}/participation-recommendation",
+                params={"concept": "equal parts"},
+            )
+            assert recommendation.status_code == 200
+            assert recommendation.json()["student"] == "Jordan"
+            assert recommendation.json()["reason"] == "concept_support"
 
             unknown_student = http.post(
                 f"/api/teacher/sessions/{session_id}/interruptions",
@@ -314,6 +416,30 @@ def test_number_line_without_optional_labels_matches_shared_schema() -> None:
     action = plan.board_actions[0].model_dump(mode="json", exclude_none=True)
     validate_payload("board-action", action)
     assert "label" not in action["marks"][0]
+
+
+def test_interruption_contract_requires_a_full_board_wipe() -> None:
+    plan = TeachingTurnPlan.model_validate(
+        {
+            "board_actions": [
+                {
+                    "type": "board.write_text",
+                    "region": "center",
+                    "text": "A replacement explanation",
+                    "element_id": "replacement",
+                }
+            ],
+            "narration_segments": [
+                {"text": "A replacement explanation", "language": "English"}
+            ],
+            "check_for_understanding": "What changed?",
+            "pedagogical_rationale": "Reduce competing visual information.",
+            "resume_guidance": "Return to the lesson example.",
+        }
+    )
+
+    with pytest.raises(ModelClientError, match="clearing the entire board"):
+        TeacherBrain._validate_interruption_plan(plan, "English")
 
 
 @pytest.mark.asyncio

@@ -68,15 +68,27 @@ or pseudonyms and start Classroom Compass:
 ```bash
 export CC_TUTOR_PROVIDER=teacher-brain
 export CC_TEACHER_BRAIN_API_URL=http://127.0.0.1:8000
-export CC_TEACHER_BRAIN_ROSTER_JSON='[{"studentRef":"camera-left","name":"Jordan","language":"English"}]'
+export CC_TEACHER_BRAIN_ROSTER_JSON='[{"studentRef":"seat-english","name":"Jordan","language":"English"},{"studentRef":"seat-spanish","name":"Sofia","language":"Spanish"}]'
 npm run dev:classroom
 ```
 
-The provider creates a Teacher Brain session lazily, sends transcribed hand-raise
-questions to its interruption endpoint, speaks the returned explanation, and turns
-the validated private board plan into public Excalidraw elements. It never sends
-learner memory, pedagogical rationale, or raw custom SVG to the projector. If no
-provider is selected, the existing local Ollama path remains the default.
+The provider opens a Teacher Brain session and lesson before listening, sends
+transcribed hand-raise questions to its interruption endpoint, speaks the returned
+explanation, and explicitly resumes through the teaching endpoint. Spanish turns
+are spoken in Spanish with a brief English recap, and both texts appear on the
+projector. The provider never sends learner memory, pedagogical rationale, or raw
+custom SVG to the projector. If no provider is selected, the existing local Ollama
+path remains the default.
+
+To rehearse the complete two-student flow with scripted sensor events and real
+Teacher Brain model calls:
+
+```bash
+npm run teacher:demo -- --board --audio
+```
+
+See the repository-level `docs/demo-flow.md` for expected transitions and backend
+memory and participation checks.
 
 ## Run the headless demo
 

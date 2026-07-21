@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { z } from "zod";
 import type {
   TutorAnswerProvider,
+  TutorLessonInput,
   TutorQuestion,
   TutorTurn,
 } from "./tutor-provider";
@@ -126,6 +127,8 @@ type TeacherBrainProviderOptions = {
   objective?: string;
   sourceMaterial?: string;
   sourceRef?: string;
+  openingInstruction?: string;
+  resumeInstruction?: string;
   roster?: TeacherBrainRosterEntry[];
   timeoutMs?: number;
   fetcher?: typeof fetch;
@@ -156,13 +159,83 @@ export class TeacherBrainTutorProvider implements TutorAnswerProvider {
       teachingTurnResponseSchema,
       signal,
     );
-    const narration = result.plan.narration_segments
-      .map((segment) => segment.text.trim())
-      .filter(Boolean)
-      .join(" ");
-    const spokenLanguage = languageCode(
-      result.plan.narration_segments[0]?.language ?? profile.language,
+    return this.toTutorTurn(result, input.lessonTitle);
+  }
+
+  async beginLesson(
+    input: TutorLessonInput,
+    signal?: AbortSignal,
+  ): Promise<TutorTurn> {
+    const sessionId = await this.ensureSession(input.lessonTitle, undefined, signal);
+    const result = await this.post(
+      `/api/teacher/sessions/${encodeURIComponent(sessionId)}/teach`,
+      {
+        instruction: this.options.openingInstruction
+          ?? "Begin the lesson with one concrete representation and a short check for understanding.",
+      },
+      teachingTurnResponseSchema,
+      signal,
     );
+    return this.toTutorTurn(result, input.lessonTitle);
+  }
+
+  async resumeLesson(
+    input: TutorLessonInput,
+    signal?: AbortSignal,
+  ): Promise<TutorTurn> {
+    const sessionId = await this.ensureSession(input.lessonTitle, undefined, signal);
+    const guidance = input.resumeGuidance?.trim();
+    const instruction = this.options.resumeInstruction
+      ?? "Resume the interrupted lesson with a brief verbal bridge. Continue from the stored resume guidance without repeating the interruption answer.";
+    const result = await this.post(
+      `/api/teacher/sessions/${encodeURIComponent(sessionId)}/teach`,
+      {
+        instruction: `${instruction}${guidance ? ` Stored bridge: ${guidance}` : ""}`.slice(0, 5_000),
+      },
+      teachingTurnResponseSchema,
+      signal,
+    );
+    return this.toTutorTurn(result, input.lessonTitle);
+  }
+
+  languageForStudent(studentRef?: string): "en" | "es" {
+    return languageCode(this.profileFor(studentRef).language);
+  }
+
+  classroomSessionId(): string | null {
+    return this.sessionId;
+  }
+
+  apiBaseUrl(): string {
+    return (this.options.baseUrl ?? "http://127.0.0.1:8000").replace(/\/$/, "");
+  }
+
+  roster(): TeacherBrainRosterEntry[] {
+    return [...this.profilesByRef.values()].map((profile) => ({ ...profile }));
+  }
+
+  private toTutorTurn(
+    result: z.infer<typeof teachingTurnResponseSchema>,
+    lessonTitle: string,
+  ): TutorTurn {
+    if (result.kind === "interruption") {
+      const firstAction = result.plan.board_actions[0];
+      if (firstAction.type !== "board.clear" || firstAction.region !== "all") {
+        throw new Error("Teacher Brain interruption did not begin with a full board clear");
+      }
+      const narrationLanguages = result.plan.narration_segments.map((segment) => languageCode(segment.language));
+      if (narrationLanguages.includes("es") && !narrationLanguages.includes("en")) {
+        throw new Error("Teacher Brain Spanish interruption omitted the English recap");
+      }
+    }
+    const spokenSegments = result.plan.narration_segments
+      .map((segment) => ({
+        text: segment.text.trim(),
+        language: languageCode(segment.language),
+      }))
+      .filter((segment) => Boolean(segment.text));
+    const narration = spokenSegments.map((segment) => segment.text).join(" ");
+    const spokenLanguage = spokenSegments[0]?.language ?? "en";
     const nodes = result.plan.board_actions
       .map(actionSummary)
       .filter((node): node is { label: string; detail: string } => node !== null)
@@ -171,9 +244,9 @@ export class TeacherBrainTutorProvider implements TutorAnswerProvider {
     return {
       disposition: "answer",
       answer: narration.slice(0, 1_200),
-      spokenAnswer: narration.slice(0, 700),
+      spokenAnswer: spokenSegments[0]?.text.slice(0, 700) ?? narration.slice(0, 700),
       visual: {
-        title: input.lessonTitle.slice(0, 100) || "Student question",
+        title: lessonTitle.slice(0, 100) || "Student question",
         nodes,
         connections: [],
       },
@@ -181,6 +254,7 @@ export class TeacherBrainTutorProvider implements TutorAnswerProvider {
       provider: this.id,
       model: "teacher-brain-responses-api",
       language: spokenLanguage,
+      spokenSegments,
       boardPlan: result.plan,
       providerMetadata: {
         sessionId: result.session_id,
@@ -209,11 +283,11 @@ export class TeacherBrainTutorProvider implements TutorAnswerProvider {
 
   private async ensureSession(
     lessonTitle: string,
-    activeProfile: TeacherBrainRosterEntry,
+    activeProfile: TeacherBrainRosterEntry | undefined,
     signal?: AbortSignal,
   ): Promise<string> {
     const roster = uniqueProfiles([
-      activeProfile,
+      ...(activeProfile ? [activeProfile] : []),
       ...this.profilesByRef.values(),
     ]);
     const rosterChanged = roster.some((profile) => !this.sessionRoster.has(profile.name));
@@ -261,7 +335,7 @@ export class TeacherBrainTutorProvider implements TutorAnswerProvider {
     schema: z.ZodType<T>,
     signal?: AbortSignal,
   ): Promise<T> {
-    const baseUrl = (this.options.baseUrl ?? "http://127.0.0.1:8000").replace(/\/$/, "");
+    const baseUrl = this.apiBaseUrl();
     const timeout = AbortSignal.timeout(this.options.timeoutMs ?? 180_000);
     const response = await (this.options.fetcher ?? fetch)(`${baseUrl}${path}`, {
       method: "POST",
@@ -292,6 +366,8 @@ export function createTeacherBrainProviderFromEnvironment(
     objective: environment.CC_TEACHER_BRAIN_OBJECTIVE,
     sourceMaterial: environment.CC_TEACHER_BRAIN_SOURCE_MATERIAL,
     sourceRef: environment.CC_TEACHER_BRAIN_SOURCE_REF,
+    openingInstruction: environment.CC_TEACHER_BRAIN_OPENING_INSTRUCTION,
+    resumeInstruction: environment.CC_TEACHER_BRAIN_RESUME_INSTRUCTION,
     timeoutMs: environment.CC_TEACHER_BRAIN_TIMEOUT_MS
       ? z.coerce.number().int().min(1_000).max(600_000).parse(
           environment.CC_TEACHER_BRAIN_TIMEOUT_MS,

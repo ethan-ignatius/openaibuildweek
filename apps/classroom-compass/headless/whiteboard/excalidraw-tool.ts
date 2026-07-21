@@ -131,18 +131,24 @@ function wrapText(value: string, lineLength = 58, maxLines = 12) {
   return lines.join("\n");
 }
 
-export function tutorThinkingScene(revision: number): ExcalidrawScene {
+export function tutorThinkingScene(
+  revision: number,
+  language: "en" | "es" = "en",
+): ExcalidrawScene {
+  const copy = language === "es"
+    ? ["Pensemos en eso…", "Estoy preparando una explicación breve y un apoyo visual."]
+    : ["Let’s think about that…", "I’m preparing a short explanation and a visual."];
   return {
     schemaVersion: 1,
     sceneId: "tutor-thinking",
     revision,
     title: "Thinking about the question",
-    language: "en",
+    language,
     status: "active",
     source: "agent-drawing",
     elements: [
-      text("thinking-title", "Let’s think about that…", 420, 260, 48, palette.green),
-      text("thinking-detail", "I’m preparing a short explanation and a visual.", 430, 350, 28, palette.muted),
+      text("thinking-title", copy[0], 420, 260, 48, palette.green),
+      text("thinking-detail", copy[1], 430, 350, 28, palette.muted),
       { id: "thinking-arrow", type: "arrow", x: 500, y: 440, points: [[0, 0], [360, 0]], strokeColor: palette.amber, strokeWidth: 3 },
     ],
   };
@@ -225,6 +231,24 @@ export function teacherBrainPlanScene(
       place,
     });
   }
+  const spanishNarration = plan.narration_segments
+    .filter((segment) => isLanguage(segment.language, "es"))
+    .map((segment) => segment.text)
+    .join(" ");
+  const englishNarration = plan.narration_segments
+    .filter((segment) => isLanguage(segment.language, "en"))
+    .map((segment) => segment.text)
+    .join(" ");
+  if (spanishNarration && englishNarration) {
+    add(
+      { id: uniqueId("bilingual-spanish-panel"), type: "rectangle", x: 900, y: 500, width: 460, height: 105, strokeColor: palette.green, backgroundColor: palette.greenSoft, fillStyle: "solid", strokeWidth: 2 },
+      text(uniqueId("bilingual-spanish-label"), "Español", 925, 515, 18, palette.green),
+      text(uniqueId("bilingual-spanish-copy"), wrapText(spanishNarration, 54, 3).slice(0, 500), 925, 545, 18, palette.ink),
+      { id: uniqueId("bilingual-english-panel"), type: "rectangle", x: 900, y: 625, width: 460, height: 105, strokeColor: palette.amber, backgroundColor: palette.paper, fillStyle: "solid", strokeWidth: 2 },
+      text(uniqueId("bilingual-english-label"), "English recap", 925, 640, 18, palette.amber),
+      text(uniqueId("bilingual-english-copy"), wrapText(englishNarration, 54, 3).slice(0, 500), 925, 670, 18, palette.ink),
+    );
+  }
   if (truncated) {
     add(text(uniqueId("scene-truncated"), "Additional visual detail was omitted for projector safety.", 780, 760, 18, palette.amber));
   }
@@ -239,6 +263,14 @@ export function teacherBrainPlanScene(
     source: "agent-drawing",
     elements,
   });
+}
+
+function isLanguage(value: string, target: "en" | "es") {
+  const normalized = value.trim().toLowerCase();
+  if (target === "es") {
+    return normalized === "es" || normalized.startsWith("es-") || normalized.includes("spanish");
+  }
+  return normalized === "en" || normalized.startsWith("en-") || normalized.includes("english");
 }
 
 type TeacherBrainDrawingContext = {

@@ -13,7 +13,9 @@ export class TutorRuntime {
   private processingQuestion = false;
   private conversation: TutorHistoryItem[] = [];
   private deferredQuestions: HeadlessEvent[] = [];
-  private activeSpokenText: string | null = null;
+  private activeSpokenTexts = new Map<string, string>();
+  private speechEpoch = 0;
+  private activeDeliveryInterruptible = false;
   private recentSpokenTexts: Array<{ text: string; completedAt: number }> = [];
 
   constructor(
@@ -30,6 +32,7 @@ export class TutorRuntime {
     this.status = "running";
     await this.store.update((record) => { record.status = "running"; });
     await this.store.appendAudit("runtime_started", `Headless tutor started with ${this.sensors.length} sensor adapter(s) and output ${this.output.id}.`);
+    await this.beginLessonIfSupported();
     await Promise.all(this.sensors.map((sensor) => sensor.start((event) => this.handleEvent(event), this.controller.signal)));
     if (options.stopWhenSensorsComplete) await this.stop("Sensor fixture completed.");
   }
@@ -50,7 +53,11 @@ export class TutorRuntime {
   }
 
   private async handleHandRaise(event: HeadlessEvent) {
-    if (this.processingQuestion || this.activeInteraction || this.activeSpokenText) {
+    if (this.activeSpokenTexts.size > 0 && this.activeDeliveryInterruptible) {
+      this.speechEpoch += 1;
+      await this.output.cancel();
+      await this.store.appendAudit("lesson_speech_interrupted", "Current lesson speech was stopped for a confirmed hand raise.");
+    } else if (this.processingQuestion || this.activeInteraction || this.activeSpokenTexts.size > 0) {
       await this.store.appendAudit("hand_raise_observed_busy", "A hand raise was recorded while the tutor was already facilitating a turn; it did not interrupt the active interaction.");
       return;
     }
@@ -59,8 +66,14 @@ export class TutorRuntime {
       : event.payload.seat === "camera-right"
         ? "on the right side"
         : "near the center";
+    const language = this.tutorProvider?.languageForStudent?.(event.studentRef) ?? "en";
     await this.store.appendAudit("hand_raise_acknowledged", `A live hand-raise event ${zone} was acknowledged without identifying a person.`);
-    await this.speak(`I see a raised hand ${zone}. Go ahead with your question.`, "en");
+    await this.speak(
+      language === "es"
+        ? "Veo una mano levantada. Adelante con tu pregunta."
+        : `I see a raised hand ${zone}. Go ahead with your question.`,
+      language,
+    );
   }
 
   private async handleQuestion(event: HeadlessEvent) {
@@ -96,33 +109,50 @@ export class TutorRuntime {
     let modelAnswered = false;
     if (this.tutorProvider) {
       this.processingQuestion = true;
-      await this.showBoard(tutorThinkingScene(++this.boardRevision));
-      await this.speak("Let me think about that.", "en");
+      const studentLanguage = this.tutorProvider.languageForStudent?.(event.studentRef) ?? "en";
+      await this.showBoard(tutorThinkingScene(++this.boardRevision, studentLanguage));
+      await this.speak(
+        studentLanguage === "es" ? "Déjame pensar en eso." : "Let me think about that.",
+        studentLanguage,
+      );
       await this.store.appendAudit("tutor_model_requested", `Sent a sanitized, untrusted transcript to ${this.tutorProvider.id}.`);
       try {
         const turn = await this.tutorProvider.answer({
           transcript: event.payload.text ?? "",
           lessonTitle: this.store.snapshot().lessonTitle,
-          history: this.conversation,
+          history: [...this.conversation],
           studentRef: event.studentRef,
           confidenceBand: event.provenance.confidenceBand,
           transcriptionSegments: event.payload.transcriptionSegments,
-        });
+        }, this.controller.signal);
         this.conversation.push(
           { role: "student", content: event.payload.text ?? "" },
           { role: "tutor", content: `${turn.answer}${turn.followUpQuestion ? ` ${turn.followUpQuestion}` : ""}` },
         );
         this.conversation = this.conversation.slice(-8);
-        const turnLanguage = turn.language ?? "en";
-        await this.showBoard(
-          turn.boardPlan
-            ? teacherBrainPlanScene(turn.boardPlan, turn.visual.title, turnLanguage, ++this.boardRevision)
-            : genericTutorScene(turn, ++this.boardRevision),
-        );
-        await this.speak(turn.spokenAnswer, turnLanguage);
-        if (turn.followUpQuestion) await this.speak(turn.followUpQuestion, turnLanguage);
+        await this.deliverTutorTurn(turn, false);
         await this.store.appendAudit("tutor_model_answered", `${turn.provider} produced a validated ${turn.disposition} response using ${turn.model}.`);
         modelAnswered = true;
+        if (this.tutorProvider.resumeLesson) {
+          try {
+            const resumeGuidance = typeof turn.providerMetadata?.resumeGuidance === "string"
+              ? turn.providerMetadata.resumeGuidance
+              : undefined;
+            const resumed = await this.tutorProvider.resumeLesson({
+              lessonTitle: this.store.snapshot().lessonTitle,
+              resumeGuidance,
+            }, this.controller.signal);
+            const completed = await this.deliverTutorTurn(resumed, true);
+            await this.store.appendAudit(
+              completed ? "lesson_resumed" : "lesson_resume_interrupted",
+              completed
+                ? "Teacher Brain returned to the interrupted lesson using its explicit resume guidance."
+                : "The resumed lesson speech was stopped for another confirmed hand raise.",
+            );
+          } catch {
+            await this.store.appendAudit("lesson_resume_failed", "The interruption answer completed, but the follow-on lesson turn was unavailable.");
+          }
+        }
       } catch (error) {
         providerFailure = error instanceof Error ? error.message : "Unknown model error";
         await this.store.appendAudit("tutor_model_failed", `${this.tutorProvider.id} failed validation or availability checks.`);
@@ -193,13 +223,65 @@ export class TutorRuntime {
       provenance: { policy: this.policy.id, version: this.policy.version },
     };
     await this.store.appendCommand(command);
-    this.activeSpokenText = text;
+    this.activeSpokenTexts.set(command.id, text);
     try {
       await this.output.deliver(command);
     } finally {
-      this.activeSpokenText = null;
+      this.activeSpokenTexts.delete(command.id);
       this.recentSpokenTexts.push({ text, completedAt: Date.now() });
       this.recentSpokenTexts = this.recentSpokenTexts.filter((item) => Date.now() - item.completedAt < 15_000).slice(-6);
+    }
+  }
+
+  private async beginLessonIfSupported() {
+    if (!this.tutorProvider?.beginLesson) return;
+    this.processingQuestion = true;
+    try {
+      const turn = await this.tutorProvider.beginLesson(
+        { lessonTitle: this.store.snapshot().lessonTitle },
+        this.controller.signal,
+      );
+      const completed = await this.deliverTutorTurn(turn, true);
+      await this.store.appendAudit(
+        completed ? "lesson_started" : "lesson_start_interrupted",
+        completed
+          ? "Teacher Brain produced the opening lesson turn before listening for interruptions."
+          : "The opening lesson speech was stopped for a confirmed hand raise.",
+      );
+    } catch {
+      await this.store.appendAudit("lesson_start_failed", "Teacher Brain could not produce the opening lesson turn; sensing remains available.");
+    } finally {
+      this.processingQuestion = false;
+    }
+    await this.answerNextQueuedQuestion();
+  }
+
+  private async deliverTutorTurn(
+    turn: Awaited<ReturnType<TutorAnswerProvider["answer"]>>,
+    interruptible: boolean,
+  ) {
+    const deliveryEpoch = this.speechEpoch;
+    this.activeDeliveryInterruptible = interruptible;
+    const turnLanguage = turn.language ?? "en";
+    try {
+      await this.showBoard(
+        turn.boardPlan
+          ? teacherBrainPlanScene(turn.boardPlan, turn.visual.title, turnLanguage, ++this.boardRevision)
+          : genericTutorScene(turn, ++this.boardRevision),
+      );
+      const spokenSegments = turn.spokenSegments?.length
+        ? turn.spokenSegments
+        : [{ text: turn.spokenAnswer, language: turnLanguage }];
+      for (const segment of spokenSegments) {
+        if (deliveryEpoch !== this.speechEpoch) return false;
+        await this.speak(segment.text, segment.language);
+      }
+      if (turn.followUpQuestion && deliveryEpoch === this.speechEpoch) {
+        await this.speak(turn.followUpQuestion, turnLanguage);
+      }
+      return deliveryEpoch === this.speechEpoch;
+    } finally {
+      this.activeDeliveryInterruptible = false;
     }
   }
 
@@ -213,7 +295,7 @@ export class TutorRuntime {
     const heard = tokens(transcript);
     if (heard.size < 4) return false;
     const candidates = [
-      ...(this.activeSpokenText ? [this.activeSpokenText] : []),
+      ...this.activeSpokenTexts.values(),
       ...this.recentSpokenTexts.filter((item) => Date.now() - item.completedAt < 15_000).map((item) => item.text),
     ];
     return candidates.some((candidate) => {

@@ -143,3 +143,22 @@ actions become a safe placeholder, while text, equations, axes, number lines,
 fraction bars, highlights, and clears are rendered by deterministic code. Scene
 replacement currently clears the tutor-owned canvas; persistent teacher/student
 drawing layers are future work.
+
+Classroom Compass performs the opening `/teach` call before sensor processing and
+an explicit follow-on `/teach` call after each successful interruption. Every
+interruption plan must begin with a full-board clear. A Spanish interruption must
+contain Spanish narration followed by a brief English recap; the runtime speaks
+each segment with its language tag, and deterministic projector code adds both
+texts to the public scene.
+
+For private, evidence-based participation support, call:
+
+```bash
+curl 'http://127.0.0.1:8000/api/teacher/sessions/<session_id>/participation-recommendation?concept=fractions'
+```
+
+The selector prioritizes an enrolled student with no current-session
+participation, or—when a concept is supplied—a student whose private note contains
+documented evidence for that concept. It does not infer attention, emotion, or a
+diagnosis, and its recommendation tells the caller to offer a low-stakes invitation
+rather than compel or publicly label the student.

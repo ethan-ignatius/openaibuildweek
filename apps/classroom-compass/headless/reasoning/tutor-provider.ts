@@ -29,8 +29,14 @@ export type TutorTurn = z.infer<typeof tutorTurnSchema> & {
   provider: string;
   model: string;
   language?: "en" | "es";
+  spokenSegments?: Array<{ text: string; language: "en" | "es" }>;
   boardPlan?: unknown;
   providerMetadata?: Record<string, unknown>;
+};
+
+export type TutorLessonInput = {
+  lessonTitle: string;
+  resumeGuidance?: string;
 };
 
 export type TutorHistoryItem = { role: "student" | "tutor"; content: string };
@@ -46,6 +52,9 @@ export type TutorQuestion = {
 export interface TutorAnswerProvider {
   id: string;
   answer(input: TutorQuestion, signal?: AbortSignal): Promise<TutorTurn>;
+  beginLesson?(input: TutorLessonInput, signal?: AbortSignal): Promise<TutorTurn>;
+  resumeLesson?(input: TutorLessonInput, signal?: AbortSignal): Promise<TutorTurn>;
+  languageForStudent?(studentRef?: string): "en" | "es";
 }
 
 export const tutorTurnJsonSchema = {

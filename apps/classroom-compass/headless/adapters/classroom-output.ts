@@ -19,12 +19,20 @@ export class SystemSpeakerOutput implements ClassroomOutputAdapter {
   id = "system-speaker-output@1.0.0";
   private active = new Set<ReturnType<typeof spawn>>();
 
-  constructor(private command: string, private baseArgs: string[] = []) {}
+  constructor(
+    private command: string,
+    private baseArgs: string[] = [],
+    private languageArgs: Partial<Record<TutorCommand["language"], string[]>> = {},
+  ) {}
 
   async deliver(command: TutorCommand) {
     if (command.kind !== "speak" || !command.text) return;
     await new Promise<void>((resolve, reject) => {
-      const child = spawn(this.command, [...this.baseArgs, command.text!], { stdio: "ignore" });
+      const child = spawn(
+        this.command,
+        [...this.baseArgs, ...(this.languageArgs[command.language] ?? []), command.text!],
+        { stdio: "ignore" },
+      );
       this.active.add(child);
       child.once("error", reject);
       child.once("exit", () => { this.active.delete(child); resolve(); });
@@ -36,6 +44,10 @@ export class SystemSpeakerOutput implements ClassroomOutputAdapter {
 }
 
 export function systemSpeakerForPlatform() {
-  if (process.platform === "darwin") return new SystemSpeakerOutput("/usr/bin/say");
-  return new SystemSpeakerOutput("espeak");
+  if (process.platform === "darwin") {
+    return new SystemSpeakerOutput("/usr/bin/say", [], {
+      es: ["-v", process.env.CC_SPANISH_VOICE ?? "Mónica"],
+    });
+  }
+  return new SystemSpeakerOutput("espeak", [], { es: ["-v", "es"] });
 }

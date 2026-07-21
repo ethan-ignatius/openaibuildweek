@@ -37,6 +37,10 @@ describe("Teacher Brain API tutor provider", () => {
             text: "Tres cuartos significa tres de cuatro partes iguales.",
             language: "Spanish",
             highlight_element_id: "fraction",
+          }, {
+            text: "In English: three fourths means three of four equal parts.",
+            language: "English",
+            highlight_element_id: "fraction",
           }],
           check_for_understanding: "¿Qué cuenta el denominador?",
           pedagogical_rationale: "Use equal parts before symbolic comparison.",
@@ -72,6 +76,10 @@ describe("Teacher Brain API tutor provider", () => {
     expect(turn.language).toBe("es");
     expect(turn.spokenAnswer).toContain("Tres cuartos");
     expect(turn.followUpQuestion).toContain("denominador");
+    expect(turn.spokenSegments).toEqual([
+      { text: "Tres cuartos significa tres de cuatro partes iguales.", language: "es" },
+      { text: "In English: three fourths means three of four equal parts.", language: "en" },
+    ]);
     const boardPlan = teacherBrainPlanSchema.parse(turn.boardPlan);
     expect(boardPlan.board_actions[0]).toEqual({
       type: "board.clear",
@@ -93,6 +101,58 @@ describe("Teacher Brain API tutor provider", () => {
     });
     expect(provider?.id).toBe("teacher-brain-api@1.0.0");
     expect(createTutorProviderFromEnvironment({})?.id).toBe("ollama-local-tutor@1.0.0");
+  });
+
+  it("opens and explicitly resumes a lesson through the teach endpoint", async () => {
+    const requests: Array<{ url: string; body: Record<string, unknown> }> = [];
+    let turnIndex = 0;
+    const fetcher = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      requests.push({ url, body });
+      if (url.endsWith("/api/teacher/sessions")) {
+        return jsonResponse({ session_id: "classroom-lifecycle", status: "active" });
+      }
+      turnIndex += 1;
+      return jsonResponse({
+        session_id: "classroom-lifecycle",
+        turn_index: turnIndex,
+        kind: "instruction",
+        student: null,
+        plan: {
+          board_actions: [
+            { type: "board.clear", region: "all" },
+            { type: "board.write_text", region: "center", text: `Lesson turn ${turnIndex}`, element_id: `lesson-${turnIndex}` },
+          ],
+          narration_segments: [{ text: `Lesson narration ${turnIndex}`, language: "English", highlight_element_id: `lesson-${turnIndex}` }],
+          check_for_understanding: "What do you notice?",
+          pedagogical_rationale: "Keep the lesson coherent.",
+          resume_guidance: "Continue with the next representation.",
+        },
+        token_usage: { input: 10, output: 10, total: 20 },
+        latency_ms: 5,
+      });
+    });
+    const provider = new TeacherBrainTutorProvider({
+      fetcher: fetcher as typeof fetch,
+      roster: [
+        { studentRef: "seat-english", name: "Jordan", language: "English" },
+        { studentRef: "seat-spanish", name: "Sofia", language: "Spanish" },
+      ],
+    });
+
+    const opening = await provider.beginLesson({ lessonTitle: "Fractions" });
+    const resumed = await provider.resumeLesson({
+      lessonTitle: "Fractions",
+      resumeGuidance: "Return to the number line.",
+    });
+
+    expect(opening.spokenAnswer).toContain("Lesson narration 1");
+    expect(resumed.spokenAnswer).toContain("Lesson narration 2");
+    expect(requests.filter((request) => request.url.endsWith("/teach"))).toHaveLength(2);
+    expect(requests.at(-1)?.body.instruction).toContain("Return to the number line");
+    expect(provider.classroomSessionId()).toBe("classroom-lifecycle");
+    expect(provider.languageForStudent("seat-spanish")).toBe("es");
   });
 
   it("fails closed when the Teacher Brain response does not match the contract", async () => {

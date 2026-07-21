@@ -11,6 +11,7 @@
     "dev:board": "npm run dev --workspace @teacher-brain/board",
     "dev:classroom": "npm run dev --workspace classroom-compass",
     "dev:excalidraw": "npm run board:dev --workspace classroom-compass",
+    "demo:teacher-brain": "npm run teacher:demo --workspace classroom-compass --",
     "test": "npm run test --workspace @teacher-brain/board && npm run test --workspace classroom-compass",
     "typecheck": "npm run typecheck --workspace @teacher-brain/shared && npm run typecheck --workspace @teacher-brain/board && npm run typecheck --workspace classroom-compass",
     "verify:m0": "node scripts/verify-m0.mjs"

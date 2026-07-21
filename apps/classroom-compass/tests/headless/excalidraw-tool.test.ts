@@ -116,7 +116,10 @@ describe("bounded Excalidraw whiteboard tool", () => {
         { type: "board.highlight", element_id: "fraction.value", style: "outline" },
         { type: "board.render_custom", svg: "<svg><script>privateTranscript()</script></svg>", element_id: "custom.private" },
       ],
-      narration_segments: [{ text: "Three fourths is three equal parts out of four.", language: "English", highlight_element_id: "fraction.value" }],
+      narration_segments: [
+        { text: "Tres cuartos son tres de cuatro partes iguales.", language: "Spanish", highlight_element_id: "fraction.value" },
+        { text: "Three fourths is three equal parts out of four.", language: "English", highlight_element_id: "fraction.value" },
+      ],
       check_for_understanding: "What does the denominator count?",
       pedagogical_rationale: "private operator rationale",
       resume_guidance: "private resume plan",
@@ -128,6 +131,10 @@ describe("bounded Excalidraw whiteboard tool", () => {
       status: "active",
     });
     expect(JSON.stringify(scene)).toContain("3/4");
+    expect(JSON.stringify(scene)).toContain("Español");
+    expect(JSON.stringify(scene)).toContain("English recap");
+    expect(JSON.stringify(scene)).toContain("Tres cuartos");
+    expect(JSON.stringify(scene)).toContain("Three fourths");
     expect(JSON.stringify(scene)).not.toContain("private operator rationale");
     expect(JSON.stringify(scene)).not.toContain("private resume plan");
     expect(JSON.stringify(scene)).not.toContain("privateTranscript");

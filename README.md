@@ -212,6 +212,16 @@ Open `http://localhost:3000/board` on the projector. Classroom Compass also reta
 its local Ollama mode, deterministic decimal tool, microphone/camera setup commands,
 and full documentation under [`apps/classroom-compass/`](apps/classroom-compass/).
 
+To rehearse the complete opening → English interruption → resume → Spanish
+interruption → bilingual board → resume flow against the real Teacher Brain API:
+
+```bash
+npm run demo:teacher-brain -- --board --audio
+```
+
+See [`docs/demo-flow.md`](docs/demo-flow.md) for the three-terminal setup, default
+demo roster, backend memory checks, and participation-recommendation checks.
+
 ## M1 Evaluation Quick Start
 
 The input contract and access requirements are documented in

@@ -3,11 +3,13 @@ import { mkdir, readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { ConsoleClassroomOutput, systemSpeakerForPlatform } from "./adapters/classroom-output";
 import { FixtureSensorAdapter } from "./adapters/fixture-sensor";
+import { TeacherBrainDemoSensorAdapter } from "./adapters/teacher-brain-demo-sensor";
 import { JsonLineSensorAdapter, parseCommandSpec } from "./adapters/json-line-sensor";
 import { ControlServer } from "./control/control-server";
 import { TutorRuntime } from "./core/tutor-runtime";
 import type { ClassroomOutputAdapter, SensorAdapter } from "./core/types";
 import { createTutorProviderFromEnvironment } from "./reasoning/tutor-provider";
+import { TeacherBrainTutorProvider } from "./reasoning/teacher-brain-provider";
 import { LocalEventStore, newSessionRecord } from "./storage/local-event-store";
 
 const command = process.argv[2] ?? "help";
@@ -43,6 +45,75 @@ async function runDemo() {
       process.once("SIGTERM", finish);
     });
     await runtime.stop("Board demo ended.");
+    await control?.close();
+  }
+}
+
+async function runTeacherBrainDemo() {
+  const id = sessionId("demo");
+  const lessonTitle = process.env.CC_LESSON_TITLE ?? "Equivalent Fractions";
+  const demoEnvironment = {
+    ...process.env,
+    CC_TUTOR_PROVIDER: "teacher-brain",
+    CC_TEACHER_BRAIN_ROSTER_JSON: process.env.CC_TEACHER_BRAIN_ROSTER_JSON ?? JSON.stringify([
+      { studentRef: "seat-english", name: "Jordan", language: "English" },
+      { studentRef: "seat-spanish", name: "Sofia", language: "Spanish" },
+      { studentRef: "seat-quiet", name: "Riley", language: "English" },
+    ]),
+  };
+  const provider = createTutorProviderFromEnvironment(demoEnvironment);
+  if (!(provider instanceof TeacherBrainTutorProvider)) {
+    throw new Error("The Teacher Brain demo requires the Teacher Brain provider.");
+  }
+  const roster = provider.roster();
+  const englishStudent = roster.find((student) => provider.languageForStudent(student.studentRef) === "en");
+  const spanishStudent = roster.find((student) => provider.languageForStudent(student.studentRef) === "es");
+  if (!englishStudent || !spanishStudent) {
+    throw new Error("The Teacher Brain demo roster must contain English- and Spanish-speaking students.");
+  }
+
+  const store = new LocalEventStore(dataDirectory, newSessionRecord(id, "demo", lessonTitle));
+  const boardMode = flags.has("--board");
+  const sensor = new TeacherBrainDemoSensorAdapter(
+    id,
+    englishStudent.studentRef,
+    spanishStudent.studentRef,
+    flags.has("--fast") ? 1 : 900,
+  );
+  const output = flags.has("--audio") ? systemSpeakerForPlatform() : new ConsoleClassroomOutput(false);
+  const runtime = new TutorRuntime(store, [sensor], output, provider);
+  const control = boardMode ? new ControlServer(runtime, controlPort) : null;
+  await control?.start();
+  if (boardMode) {
+    process.stdout.write("Open http://localhost:3000/board to watch the live Excalidraw lesson.\n");
+  }
+  await runtime.start({ stopWhenSensorsComplete: !boardMode });
+
+  const record = runtime.snapshot();
+  const apiSession = provider.classroomSessionId();
+  const apiBaseUrl = provider.apiBaseUrl();
+  process.stdout.write("\nTeacher Brain demo complete\n");
+  process.stdout.write(`Opening/resume transitions: ${record.audit.filter((entry) => ["lesson_started", "lesson_resumed"].includes(entry.action)).length}\n`);
+  process.stdout.write(`Student interruptions: ${record.events.filter((event) => event.kind === "question_transcribed").length}\n`);
+  process.stdout.write(`Public board scenes: ${record.commands.filter((item) => item.toolId === "excalidraw.renderScene").length}\n`);
+  process.stdout.write(`Raw media retained: ${record.rawMediaRetainedBytes} bytes\n`);
+  process.stdout.write(`Local session record: ${store.filePath}\n`);
+  if (apiSession) {
+    process.stdout.write(`Teacher Brain session: ${apiSession}\n`);
+    for (const student of roster) {
+      process.stdout.write(`Memory: ${apiBaseUrl}/api/teacher/students/${encodeURIComponent(student.name)}/memory\n`);
+    }
+    process.stdout.write(`Participation suggestion: ${apiBaseUrl}/api/teacher/sessions/${encodeURIComponent(apiSession)}/participation-recommendation\n`);
+  }
+
+  if (boardMode) {
+    process.stdout.write("The projector remains available until Ctrl-C.\n");
+    await new Promise<void>((resolve) => {
+      const finish = () => resolve();
+      process.once("SIGINT", finish);
+      process.once("SIGTERM", finish);
+    });
+    await runtime.stop("Teacher Brain board demo ended.");
     await control?.close();
   }
 }
@@ -99,6 +170,7 @@ function showHelp() {
   process.stdout.write(`Classroom Compass — headless classroom tutor\n\n`);
   process.stdout.write(`Commands:\n`);
   process.stdout.write(`  npm run tutor -- demo [--fast] [--audio] [--board]  Run the complete deterministic decimal lesson\n`);
+  process.stdout.write(`  npm run tutor -- teacher-demo [--fast] [--audio] [--board]  Rehearse the bilingual Teacher Brain flow\n`);
   process.stdout.write(`  npm run tutor -- run [--audio]            Run the background service\n`);
   process.stdout.write(`  npm run tutor -- health                   Read local service health\n`);
   process.stdout.write(`  npm run tutor -- pause|resume|stop        Control sensing and output\n`);
@@ -113,6 +185,7 @@ function showHelp() {
 
 try {
   if (command === "demo") await runDemo();
+  else if (command === "teacher-demo") await runTeacherBrainDemo();
   else if (command === "run") await runService();
   else if (command === "health") await requestControl("GET", "/health");
   else if (command === "pause") await requestControl("POST", "/pause");

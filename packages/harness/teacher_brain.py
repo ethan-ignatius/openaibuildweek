@@ -14,6 +14,8 @@ from packages.harness.config import HarnessConfig
 from packages.harness.journal import JournalWriter
 from packages.harness.learner_memory import LearnerMemory, LearnerMemoryError
 from packages.harness.model_client import (
+    ModelClientError,
+    ModelResult,
     OpenAIModelClient,
     StructuredModelClient,
     TokenUsage,
@@ -268,6 +270,17 @@ class LearnerMemoryView(StrictModel):
     markdown: str
 
 
+class ParticipationRecommendation(StrictModel):
+    student: str
+    reason: Literal[
+        "has_not_spoken",
+        "least_recent_participation",
+        "concept_support",
+    ]
+    evidence: str
+    participation_count: int
+
+
 class TeacherBrainError(RuntimeError):
     """Base error for classroom orchestration failures."""
 
@@ -307,6 +320,8 @@ class _ClassroomSession:
     turn_index: int = 0
     resume_guidance: str | None = None
     recent_turns: list[dict[str, Any]] = field(default_factory=list)
+    participation_counts: dict[str, int] = field(default_factory=dict)
+    last_participation_turn: dict[str, int] = field(default_factory=dict)
     client: StructuredModelClient | None = None
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
@@ -362,6 +377,8 @@ class TeacherBrain:
             source_ref=request.source_ref,
             students=students,
             journal=journal,
+            participation_counts={student: 0 for student in students},
+            last_participation_turn={student: -1 for student in students},
         )
         self._sessions[session_id] = session
         if journal:
@@ -440,17 +457,41 @@ class TeacherBrain:
 
             try:
                 await self._update_learner_memory(session, request, language)
+                interruption_prompt = self._interruption_prompt(
+                    session, request, language
+                )
                 result = await self._generate_turn(
                     session,
                     kind="interruption",
-                    user_prompt=self._interruption_prompt(session, request, language),
+                    user_prompt=interruption_prompt,
                 )
+                try:
+                    self._validate_interruption_plan(result.parsed, language)
+                except ModelClientError as first_error:
+                    corrected = await self._generate_turn(
+                        session,
+                        kind="interruption",
+                        user_prompt=(
+                            interruption_prompt
+                            + "\n\nThe prior candidate failed this mandatory delivery "
+                            f"contract: {first_error}. Produce one corrected plan now."
+                        ),
+                    )
+                    self._validate_interruption_plan(corrected.parsed, language)
+                    result = ModelResult(
+                        parsed=corrected.parsed,
+                        usage=result.usage + corrected.usage,
+                        latency_ms=result.latency_ms + corrected.latency_ms,
+                        response_id=corrected.response_id,
+                    )
                 committed = await self._commit_turn(
                     session,
                     "interruption",
                     result,
                     student=request.student,
                 )
+                session.participation_counts[request.student] += 1
+                session.last_participation_turn[request.student] = committed.turn_index
             except Exception as error:
                 session.status = "active"
                 if session.journal:
@@ -475,6 +516,82 @@ class TeacherBrain:
                     },
                 )
             return committed
+
+    async def recommend_student(
+        self,
+        session_id: str,
+        *,
+        concept: str | None = None,
+    ) -> ParticipationRecommendation:
+        session = self._session(session_id)
+        async with session.lock:
+            self._require_active(session)
+            if not session.students:
+                raise StudentNotFoundError(
+                    f"No students are enrolled in {session_id}"
+                )
+            if concept is not None and len(concept) > 200:
+                raise TeacherBrainError("Participation concept must be 200 characters or fewer")
+
+            normalized_concept = (concept or "").strip().casefold()
+            concept_candidates: list[str] = []
+            if normalized_concept:
+                for student in session.students:
+                    misconception_evidence = _markdown_section(
+                        self.memory.read(student),
+                        "## Observed misconceptions",
+                    ).casefold()
+                    if (
+                        normalized_concept in misconception_evidence
+                        and "none observed" not in misconception_evidence
+                    ):
+                        concept_candidates.append(student)
+
+            candidates = concept_candidates or list(session.students)
+            student = min(
+                candidates,
+                key=lambda name: (
+                    session.participation_counts[name],
+                    session.last_participation_turn[name],
+                    list(session.students).index(name),
+                ),
+            )
+            count = session.participation_counts[student]
+            if concept_candidates:
+                reason = "concept_support"
+                evidence = (
+                    f"The private learner note contains observed evidence related to "
+                    f"'{concept}'. Use a low-stakes check without publicly labeling the learner."
+                )
+            elif count == 0:
+                reason = "has_not_spoken"
+                evidence = (
+                    "This enrolled student has no recorded participation in the current "
+                    "session. Invite, but do not require, a response."
+                )
+            else:
+                reason = "least_recent_participation"
+                evidence = (
+                    "This student has participated least often or least recently in the "
+                    "current session. Invite, but do not require, a response."
+                )
+            recommendation = ParticipationRecommendation(
+                student=student,
+                reason=reason,
+                evidence=evidence,
+                participation_count=count,
+            )
+            if session.journal:
+                session.journal.append(
+                    "participation.recommended",
+                    {
+                        "student": recommendation.student,
+                        "reason": recommendation.reason,
+                        "concept": concept,
+                        "participation_count": count,
+                    },
+                )
+            return recommendation
 
     async def end_session(self, session_id: str) -> ClassroomSessionView:
         session = self._session(session_id)
@@ -649,11 +766,49 @@ class TeacherBrain:
             + "\n\nPause the prior explanation and answer the actual question first. "
             "Use a focusing or Socratic move where appropriate, but do not evade a direct "
             "answer. Correct mathematical or factual errors explicitly and kindly. You may "
-            "clear all or part of the board when a fresh representation reduces cognitive "
-            "load; after clearing, rebuild every visual you reference. Respond in the "
-            "declared language, ask one check-for-understanding question, then state exactly "
-            "how to reconnect to the interrupted lesson."
+            "Begin with board.clear for the entire board, then rebuild every visual you "
+            "reference so the interrupted explanation cannot remain on screen. Respond in "
+            "the declared language and ask one check-for-understanding question. If the "
+            "declared language is Spanish, put the Spanish explanation first, then add one "
+            "brief English narration segment so the whole class can follow; label those "
+            "segments Spanish and English exactly. Finish by stating exactly how to "
+            "reconnect to the interrupted lesson."
         )
+
+    @staticmethod
+    def _validate_interruption_plan(
+        plan: TeachingTurnPlan,
+        language: str,
+    ) -> None:
+        first_action = plan.board_actions[0]
+        if not isinstance(first_action, ClearAction) or first_action.region != "all":
+            raise ModelClientError(
+                "An interruption plan must begin by clearing the entire board"
+            )
+        if _is_spanish(language):
+            narration_languages = [
+                segment.language.strip().casefold()
+                for segment in plan.narration_segments
+            ]
+            spanish_positions = [
+                index
+                for index, value in enumerate(narration_languages)
+                if value == "es" or value.startswith("es-") or "spanish" in value
+            ]
+            english_positions = [
+                index
+                for index, value in enumerate(narration_languages)
+                if value == "en" or value.startswith("en-") or "english" in value
+            ]
+            if (
+                not spanish_positions
+                or not english_positions
+                or spanish_positions[0] > english_positions[0]
+            ):
+                raise ModelClientError(
+                    "A Spanish interruption must narrate in Spanish first and include "
+                    "a brief English recap"
+                )
 
     def _lesson_context(self, session: _ClassroomSession) -> str:
         source = session.source_material or "No teacher-authored source text was supplied."
@@ -763,6 +918,18 @@ def _without_type(action: Mapping[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in action.items() if key != "type"}
 
 
+def _is_spanish(language: str) -> bool:
+    normalized = language.strip().casefold()
+    return normalized == "es" or normalized.startswith("es-") or "spanish" in normalized
+
+
+def _markdown_section(markdown: str, heading: str) -> str:
+    _, separator, remainder = markdown.partition(f"{heading}\n")
+    if not separator:
+        return ""
+    return remainder.split("\n## ", 1)[0].strip()
+
+
 __all__ = [
     "BoardAction",
     "ClassroomConflictError",
@@ -771,6 +938,7 @@ __all__ = [
     "ClassroomStudent",
     "InterruptionRequest",
     "LearnerMemoryView",
+    "ParticipationRecommendation",
     "StartClassroomRequest",
     "StudentNotFoundError",
     "TeachRequest",
