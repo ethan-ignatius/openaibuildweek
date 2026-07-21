@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://teacher-brain.local/schemas/learner-model.schema.json",
+  "title": "Learner model note",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["student", "markdown"],
+  "properties": {
+    "student": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100,
+      "description": "First name or pseudonym only"
+    },
+    "markdown": { "type": "string", "minLength": 1, "maxLength": 100000 },
+    "updated_at": { "type": "string", "format": "date-time" }
+  }
+}
