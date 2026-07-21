@@ -134,7 +134,7 @@ CC_WHISPER_CAPTURE_NAME="Exact microphone name" npm run room:preview
 The camera preset uses OpenCV device index `1`. It requires shoulders, elbows,
 wrists, and the raised palm to be visible. A raise must show an upward arm and an
 open palm for several frames. The first usable transcript within the called-on
-window is associated with the rough left/center/right seat region; this is
+window is associated with the fixed left/right seat region; this is
 turn-taking association, not speaker or face recognition.
 
 The prototype seating plan maps `camera-right` to Emanuel (declared Spanish) and
@@ -143,6 +143,12 @@ detects whether the question itself is English or Spanish; that spoken language
 takes precedence over the profile default. Spanish interruption explanations and
 visuals lead in Spanish and include a short English recap, while the main lesson
 opens and resumes in English.
+
+Classroom speech uses the configured ElevenLabs voice through the server-side
+streaming API and the low-latency multilingual Flash v2.5 model. Only tutor text
+is sent for synthesis. Generated PCM audio is piped directly to the macOS player,
+can be cancelled by a hand raise, and is not written to disk. If the API is
+unavailable, the runtime reports the failure and uses the local system voice.
 
 ## Classroom Compass commands
 
@@ -224,6 +230,8 @@ copies under `data/`; see `docs/eval-methodology.md` and `docs/harness.md`.
   seat regions; no facial recognition, demographic inference, or emotion scoring.
 - Local Whisper and the default Ollama provider keep classroom processing on the
   machine. Provider changes require explicit configuration.
+- When ElevenLabs speech is enabled, approved tutor text leaves the device for
+  synthesis; microphone audio and raw classroom media are not sent to ElevenLabs.
 - A hand raise gates the shared-room microphone, but one webcam microphone cannot
   acoustically isolate a speaker; directional or beamforming hardware is needed
   for reliable isolation in a noisy room.

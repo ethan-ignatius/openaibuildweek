@@ -120,6 +120,11 @@ npm run voice:setup
 
 The setup command installs the Homebrew `whisper-cpp` package when needed, downloads the official multilingual `small` model, and verifies its SHA-256 checksum. The room presets run language detection in `auto` mode so English and Spanish questions remain in their spoken language.
 
+The live room presets use the server-side `ELEVENLABS_API_KEY` and
+`ELEVENLABS_VOICE_ID` from the ignored repository `.env`. They build a small
+local PCM player automatically, stream Eleven Flash v2.5 speech without saving
+an audio file, and retain the macOS voice only as an availability fallback.
+
 In Terminal 1:
 
 ```bash

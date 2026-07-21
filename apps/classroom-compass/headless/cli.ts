@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { mkdir, readdir, readFile } from "node:fs/promises";
 import path from "node:path";
-import { ConsoleClassroomOutput, systemSpeakerForPlatform } from "./adapters/classroom-output";
+import { classroomOutputForEnvironment, ConsoleClassroomOutput, systemSpeakerForPlatform } from "./adapters/classroom-output";
 import { FixtureSensorAdapter } from "./adapters/fixture-sensor";
 import { TeacherBrainDemoSensorAdapter } from "./adapters/teacher-brain-demo-sensor";
 import { JsonLineSensorAdapter, parseCommandSpec } from "./adapters/json-line-sensor";
@@ -127,9 +127,11 @@ async function runService() {
   if (cameraCommand) sensors.push(new JsonLineSensorAdapter("local-camera-pipeline@1.0.0", id, cameraCommand));
   if (microphoneCommand) sensors.push(new JsonLineSensorAdapter("local-microphone-transcriber@1.0.0", id, microphoneCommand));
   if (sensors.length === 0) sensors.push(new JsonLineSensorAdapter("stdin-sensor-bridge@1.0.0", id));
-  const output: ClassroomOutputAdapter = process.env.CC_AUDIO_OUTPUT === "system" || flags.has("--audio")
-    ? systemSpeakerForPlatform()
-    : new ConsoleClassroomOutput(false);
+  const output: ClassroomOutputAdapter = process.env.CC_AUDIO_OUTPUT === "elevenlabs"
+    ? classroomOutputForEnvironment(process.env)
+    : process.env.CC_AUDIO_OUTPUT === "system" || flags.has("--audio")
+      ? systemSpeakerForPlatform()
+      : new ConsoleClassroomOutput(false);
   const tutorProvider = createTutorProviderFromEnvironment(process.env);
   const runtime = new TutorRuntime(store, sensors, output, tutorProvider);
   const control = new ControlServer(runtime, controlPort);
