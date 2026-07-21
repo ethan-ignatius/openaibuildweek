@@ -337,13 +337,29 @@ def main() -> int:
     print(f"{model_label} camera ready. Frames remain in memory and are not saved.", file=sys.stderr, flush=True)
     states: dict[str, RaiseState] = {}
     smoothed_fps = 0.0
+    consecutive_read_failures = 0
+    max_read_failures = 30
 
     try:
         while running:
             ok, frame = capture.read()
             if not ok:
-                emit("sensor_unavailable", {"detail": "The camera stopped returning frames."})
+                consecutive_read_failures += 1
+                if consecutive_read_failures < max_read_failures:
+                    time.sleep(0.1)
+                    continue
+                emit(
+                    "sensor_unavailable",
+                    {
+                        "detail": (
+                            f"Camera index {args.camera} opened but returned no frames for "
+                            "3 seconds. Turn off video in Teams, Zoom, or another camera app, "
+                            "then restart Classroom Compass."
+                        )
+                    },
+                )
                 break
+            consecutive_read_failures = 0
             started = time.monotonic()
             keypoints, scores = model(frame)
             keypoints_array = np.asarray(keypoints)

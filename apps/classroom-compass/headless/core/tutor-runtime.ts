@@ -109,6 +109,7 @@ export class TutorRuntime {
   private readonly requireHandRaise = process.env.CC_REQUIRE_HAND_RAISE === "1";
   private readonly calledOnWindowMs = Number(process.env.CC_CALLED_ON_WINDOW_MS ?? 30_000);
   private readonly stopOnSensorFailure = process.env.CC_STOP_ON_SENSOR_FAILURE === "1";
+  private readonly autoStartLesson = process.env.CC_AUTO_START_LESSON !== "0";
 
   constructor(
     private store: LocalEventStore,
@@ -124,7 +125,11 @@ export class TutorRuntime {
     this.status = "running";
     await this.store.update((record) => { record.status = "running"; });
     await this.store.appendAudit("runtime_started", `Headless tutor started with ${this.sensors.length} sensor adapter(s) and output ${this.output.id}.`);
-    await this.beginLessonIfSupported();
+    if (this.autoStartLesson) {
+      await this.beginLessonIfSupported();
+    } else {
+      await this.store.appendAudit("lesson_autostart_disabled", "Room mode is waiting for a confirmed hand raise before invoking the tutor.");
+    }
     await Promise.all(this.sensors.map((sensor) => sensor.start((event) => this.handleEvent(event), this.controller.signal)));
     if (options.stopWhenSensorsComplete) await this.stop("Sensor fixture completed.");
   }

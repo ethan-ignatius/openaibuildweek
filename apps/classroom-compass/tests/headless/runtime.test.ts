@@ -226,6 +226,31 @@ describe("headless tutor runtime", () => {
     await runtime.stop();
   });
 
+  it("can wait for a raised hand without auto-starting a Teacher Brain lesson", async () => {
+    const previous = process.env.CC_AUTO_START_LESSON;
+    process.env.CC_AUTO_START_LESSON = "0";
+    try {
+      const store = await storeFor("session-wait-for-raise-test");
+      const output = new ConsoleClassroomOutput(true);
+      const provider: TutorAnswerProvider = {
+        id: "waiting-room-fixture",
+        answer: vi.fn(async () => { throw new Error("No question expected"); }),
+        beginLesson: vi.fn(async () => { throw new Error("Autostart must remain disabled"); }),
+      };
+      const runtime = new TutorRuntime(store, [], output, provider);
+
+      await runtime.start();
+
+      expect(provider.beginLesson).not.toHaveBeenCalled();
+      expect(output.delivered).toHaveLength(0);
+      expect(runtime.snapshot().audit.some((entry) => entry.action === "lesson_autostart_disabled")).toBe(true);
+      await runtime.stop();
+    } finally {
+      if (previous === undefined) delete process.env.CC_AUTO_START_LESSON;
+      else process.env.CC_AUTO_START_LESSON = previous;
+    }
+  });
+
   it("serializes simultaneous sensor events without losing the tutoring action", async () => {
     const store = await storeFor("session-concurrent-voice-test");
     const output = new ConsoleClassroomOutput(true);
