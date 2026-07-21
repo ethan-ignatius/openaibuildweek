@@ -70,3 +70,37 @@ export function transcriptSimilarity(left: string, right: string) {
   }
   return intersection / Math.max(leftWords.length, rightWords.length);
 }
+
+const acousticAnnotation = /(?:\[|\()\s*(?:door|music|noise|silence|multiple voices?|blank audio|laughter|inaudible)[^\])]*(?:\]|\))/i;
+const tutorPromptEcho = /\b(?:go ahead(?: with your question)?|ahead with your question|adelante con tu pregunta|please (?:state|restate) your question|did not hear (?:a|your) question|did not hear a thing|heard the door open|do you have a question|should we continue|cannot accurately determine)\b/i;
+const questionOpening = /^(?:what|why|how|when|where|which|who|can|could|would|will|do|does|did|is|are|was|were|explain|show|tell|help|qué|que|por qué|por que|cómo|como|cuándo|cuando|dónde|donde|cuál|cual|quién|quien|puede|puedes|explica|explícame|explicame|muéstrame|muestrame|ayúdame|ayudame)\b/i;
+const learningStatement = /\b(?:i (?:do not|don't) understand|i am confused|i'm confused|no entiendo|tengo una pregunta|necesito ayuda)\b/i;
+
+/**
+ * Keep a called-on listening window open across acoustic captions, garbled IDs,
+ * and recognizable loudspeaker echoes. This is only turn validation; it does
+ * not infer ability, identity, accent, or emotion.
+ */
+export function screenCalledOnUtterance(text: string) {
+  const trimmed = text.replace(/\s+/g, " ").trim();
+  const tokens = words(trimmed);
+  if (!trimmed || acousticAnnotation.test(trimmed)) {
+    return { usable: false, reason: "acoustic_annotation" as const };
+  }
+  if (tutorPromptEcho.test(trimmed)) {
+    return { usable: false, reason: "tutor_prompt_echo" as const };
+  }
+  const digitHeavy = tokens.length > 0
+    && tokens.filter((token) => /\d/.test(token.normalized)).length / tokens.length >= 0.4;
+  if (digitHeavy) return { usable: false, reason: "garbled_identifier" as const };
+  if (tokens.length < 2) return { usable: false, reason: "too_short" as const };
+  if (
+    trimmed.endsWith("?")
+    || questionOpening.test(trimmed)
+    || learningStatement.test(trimmed)
+    || tokens.length >= 5
+  ) {
+    return { usable: true, reason: "question_candidate" as const };
+  }
+  return { usable: false, reason: "incomplete_fragment" as const };
+}

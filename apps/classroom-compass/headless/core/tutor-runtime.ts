@@ -4,7 +4,7 @@ import { ArithmeticTutorPolicy } from "../policies/arithmetic-tutor-policy";
 import { LocalEventStore } from "../storage/local-event-store";
 import type { ComprehensionCheck, TutorAnswerProvider, TutorAssessment, TutorHistoryItem, TutorTurn } from "../reasoning/tutor-provider";
 import { coachingFeedbackScene, decimalComparisonScene, genericTutorScene, teacherBrainVisualStageScene, tutorThinkingScene, VisualStageBoardController, type VisualStageScene } from "../whiteboard/excalidraw-tool";
-import { stripKnownTutorSpeech, transcriptSimilarity } from "./turn-filter";
+import { screenCalledOnUtterance, stripKnownTutorSpeech, transcriptSimilarity } from "./turn-filter";
 
 type GeneralCheckState = {
   originalQuestion: string;
@@ -150,7 +150,7 @@ export class TutorRuntime {
       }
       const continuingTurn = Boolean(
         this.activeStudentRef
-        && (this.processingQuestion || this.activeInteraction || this.activeGeneralCheck),
+        && (this.activeInteraction || this.activeGeneralCheck),
       );
       if (this.requireHandRaise && !continuingTurn && !this.calledOn) {
         await this.store.appendAudit("ambient_transcript_ignored", "A transcript outside a confirmed hand-raise listening window was discarded and not stored.");
@@ -178,6 +178,15 @@ export class TutorRuntime {
       if (!preparedText) return;
       event = { ...event, payload: { ...event.payload, text: preparedText } };
       if (this.calledOn) {
+        const screening = screenCalledOnUtterance(preparedText);
+        if (!screening.usable) {
+          await this.store.appendAudit(
+            "called_on_fragment_ignored",
+            `The called-on listening window stayed open after rejecting a ${screening.reason.replaceAll("_", " ")} fragment.`,
+          );
+          process.stderr.write("Heard an incomplete or noisy fragment; still listening for the called-on student's question.\n");
+          return;
+        }
         this.activeStudentRef = this.calledOn.studentRef;
         await this.store.appendAudit("called_on_turn_started", `The next usable microphone turn was associated with ${this.calledOn.seat} by classroom turn-taking, not by voice identification.`);
         process.stderr.write(`Question received for ${this.calledOn.seat}.\n`);

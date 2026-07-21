@@ -313,6 +313,15 @@ describe("headless tutor runtime", () => {
         provenance: { adapter: "fixture-camera", version: "1", confidenceBand: "high" },
       });
       await runtime.handleEvent({
+        id: "door-noise-after-call-on",
+        sessionId: "session-sensing-before-opening-test",
+        kind: "question_transcribed",
+        source: "live",
+        occurredAt: new Date().toISOString(),
+        payload: { text: "Allāh Whew! [door opens]" },
+        provenance: { adapter: "fixture-microphone", version: "1", confidenceBand: "medium" },
+      });
+      await runtime.handleEvent({
         id: "question-during-opening",
         sessionId: "session-sensing-before-opening-test",
         kind: "question_transcribed",
@@ -321,11 +330,22 @@ describe("headless tutor runtime", () => {
         payload: { text: "¿Cómo usan la luz las plantas?" },
         provenance: { adapter: "fixture-microphone", version: "1", confidenceBand: "high" },
       });
+      await runtime.handleEvent({
+        id: "late-rolling-fragment",
+        sessionId: "session-sensing-before-opening-test",
+        kind: "response_transcribed",
+        source: "live",
+        occurredAt: new Date().toISOString(),
+        payload: { text: "A delayed fragment from the same microphone window" },
+        provenance: { adapter: "fixture-microphone", version: "1", confidenceBand: "medium" },
+      });
       releaseOpening();
 
       await vi.waitFor(() => expect(answer).toHaveBeenCalledOnce());
       expect(vi.mocked(answer).mock.calls[0][0].transcript).toBe("¿Cómo usan la luz las plantas?");
       expect(runtime.snapshot().events.some((event) => event.id === "ambient-during-opening")).toBe(false);
+      expect(runtime.snapshot().events.some((event) => event.id === "late-rolling-fragment")).toBe(false);
+      expect(runtime.snapshot().audit.some((entry) => entry.action === "called_on_fragment_ignored")).toBe(true);
       expect(output.delivered.some((command) => command.text === "Emanuel, te escucho. Adelante con tu pregunta.")).toBe(true);
       expect(output.delivered.some((command) => command.text === "Stale opening lesson")).toBe(false);
       expect(output.delivered.some((command) => command.text === "Plants use light energy to help make sugar.")).toBe(true);

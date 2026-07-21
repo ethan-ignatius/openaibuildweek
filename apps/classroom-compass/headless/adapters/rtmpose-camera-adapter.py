@@ -67,10 +67,13 @@ class RaiseState:
 
 
 def default_regions() -> list[SeatRegion]:
+    # The current prototype has two fixed seats. Ethan occupies the left third;
+    # Emanuel occupies the rest of the camera view. Keeping only enrolled seat
+    # regions prevents a valid raise near the middle from becoming an anonymous
+    # fallback profile.
     return [
         SeatRegion("camera-left", "Camera left", ((0.0, 0.0), (1 / 3, 0.0), (1 / 3, 1.0), (0.0, 1.0))),
-        SeatRegion("camera-center", "Camera center", ((1 / 3, 0.0), (2 / 3, 0.0), (2 / 3, 1.0), (1 / 3, 1.0))),
-        SeatRegion("camera-right", "Camera right", ((2 / 3, 0.0), (1.0, 0.0), (1.0, 1.0), (2 / 3, 1.0))),
+        SeatRegion("camera-right", "Camera right · Emanuel", ((1 / 3, 0.0), (1.0, 0.0), (1.0, 1.0), (1 / 3, 1.0))),
     ]
 
 
@@ -289,9 +292,9 @@ def self_test() -> None:
     keypoints[9] = (20, 190)
     keypoints[7] = (60, 195)
     assert not raised_hand(keypoints, scores)[0]
-    assert assigned_region(default_regions(), (500, 300), 900, 600).id == "camera-center"
+    assert assigned_region(default_regions(), (500, 300), 900, 600).id == "camera-right"
     emit("camera_connected", {"device": "self-test"})
-    emit("hand_raise", {"seat": "camera-center", "detail": "Synthetic open-palm RTMW adapter self-test."}, "high")
+    emit("hand_raise", {"seat": "camera-right", "detail": "Synthetic open-palm RTMW adapter self-test."}, "high")
 
 
 def main() -> int:
