@@ -2,7 +2,7 @@ import type { ClassroomOutputAdapter, HeadlessEvent, InteractionState, ObservedE
 import { DecimalTutorPolicy } from "../policies/decimal-tutor-policy";
 import { LocalEventStore } from "../storage/local-event-store";
 import type { TutorAnswerProvider, TutorHistoryItem } from "../reasoning/tutor-provider";
-import { decimalComparisonScene, ExcalidrawBoardController, genericTutorScene, tutorThinkingScene, type ExcalidrawScene } from "../whiteboard/excalidraw-tool";
+import { decimalComparisonScene, ExcalidrawBoardController, genericTutorScene, teacherBrainPlanScene, tutorThinkingScene, type ExcalidrawScene } from "../whiteboard/excalidraw-tool";
 
 export class TutorRuntime {
   private controller = new AbortController();
@@ -104,6 +104,7 @@ export class TutorRuntime {
           transcript: event.payload.text ?? "",
           lessonTitle: this.store.snapshot().lessonTitle,
           history: this.conversation,
+          studentRef: event.studentRef,
           confidenceBand: event.provenance.confidenceBand,
           transcriptionSegments: event.payload.transcriptionSegments,
         });
@@ -112,9 +113,14 @@ export class TutorRuntime {
           { role: "tutor", content: `${turn.answer}${turn.followUpQuestion ? ` ${turn.followUpQuestion}` : ""}` },
         );
         this.conversation = this.conversation.slice(-8);
-        await this.showBoard(genericTutorScene(turn, ++this.boardRevision));
-        await this.speak(turn.spokenAnswer, "en");
-        if (turn.followUpQuestion) await this.speak(turn.followUpQuestion, "en");
+        const turnLanguage = turn.language ?? "en";
+        await this.showBoard(
+          turn.boardPlan
+            ? teacherBrainPlanScene(turn.boardPlan, turn.visual.title, turnLanguage, ++this.boardRevision)
+            : genericTutorScene(turn, ++this.boardRevision),
+        );
+        await this.speak(turn.spokenAnswer, turnLanguage);
+        if (turn.followUpQuestion) await this.speak(turn.followUpQuestion, turnLanguage);
         await this.store.appendAudit("tutor_model_answered", `${turn.provider} produced a validated ${turn.disposition} response using ${turn.model}.`);
         modelAnswered = true;
       } catch (error) {
@@ -130,7 +136,7 @@ export class TutorRuntime {
     }
     await this.store.appendAudit("general_question_unanswered", decision.reason);
     await this.speak(providerFailure
-      ? "I heard the question, but the local tutor model is unavailable right now. Please check that Ollama is running and try again."
+      ? "I heard the question, but the configured tutor service is unavailable right now. Please ask the teacher to check it and try again."
       : "I heard the question, but no general tutor model is configured. Please enable the local Ollama provider and try again.", "en");
     await this.answerNextQueuedQuestion();
   }

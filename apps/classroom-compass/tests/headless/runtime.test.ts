@@ -182,6 +182,56 @@ describe("headless tutor runtime", () => {
     await runtime.stop();
   });
 
+  it("routes a Teacher Brain plan through the Excalidraw translator and preserves the seat reference", async () => {
+    const store = await storeFor("session-teacher-brain-test");
+    const output = new ConsoleClassroomOutput(true);
+    const provider: TutorAnswerProvider = {
+      id: "teacher-brain-fixture",
+      answer: vi.fn(async () => ({
+        disposition: "answer" as const,
+        answer: "One half means one of two equal parts.",
+        spokenAnswer: "One half means one of two equal parts.",
+        visual: { title: "One half", nodes: [], connections: [] },
+        followUpQuestion: "How many equal parts make the whole?",
+        provider: "teacher-brain-fixture",
+        model: "fixture-model",
+        language: "en" as const,
+        boardPlan: {
+          board_actions: [
+            { type: "board.clear", region: "all" },
+            { type: "board.draw_fraction_bars", fractions: ["1/2"], element_id: "one-half" },
+          ],
+          narration_segments: [{ text: "One half means one of two equal parts.", language: "English", highlight_element_id: "one-half" }],
+          check_for_understanding: "How many equal parts make the whole?",
+          pedagogical_rationale: "Use a part-whole representation.",
+          resume_guidance: "Return to equivalent fractions.",
+        },
+      })),
+    };
+    const runtime = new TutorRuntime(store, [], output, provider);
+    await runtime.start();
+    await runtime.handleEvent({
+      id: "fraction-question",
+      sessionId: "session-teacher-brain-test",
+      kind: "question_transcribed",
+      source: "live",
+      occurredAt: new Date().toISOString(),
+      studentRef: "seat-a2",
+      payload: { text: "What does one half mean?" },
+      provenance: { adapter: "voice", version: "1" },
+    });
+
+    expect(provider.answer).toHaveBeenCalledWith(expect.objectContaining({
+      studentRef: "seat-a2",
+    }));
+    expect(runtime.publicBoardState()).toMatchObject({
+      sceneId: "teacher-brain-2",
+      source: "agent-drawing",
+    });
+    expect(JSON.stringify(runtime.publicBoardState())).toContain("1/2");
+    await runtime.stop();
+  });
+
   it("uses verified decimal computation instead of asking the language model to guess arithmetic", async () => {
     const store = await storeFor("session-verified-math-test");
     const output = new ConsoleClassroomOutput(true);

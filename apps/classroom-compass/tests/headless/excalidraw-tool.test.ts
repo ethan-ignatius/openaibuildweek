@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { decimalComparisonScene, ExcalidrawBoardController, genericTutorScene } from "../../headless/whiteboard/excalidraw-tool";
+import { decimalComparisonScene, ExcalidrawBoardController, genericTutorScene, teacherBrainPlanScene } from "../../headless/whiteboard/excalidraw-tool";
 
 describe("bounded Excalidraw whiteboard tool", () => {
   it("builds an accurate reviewed decimal scene", () => {
@@ -103,5 +103,34 @@ describe("bounded Excalidraw whiteboard tool", () => {
     expect(() => board.render({ ...base, elements: [
       { id: "huge", type: "rectangle", x: 0, y: 0, width: 100_000, height: 10 },
     ] })).toThrow();
+  });
+
+  it("translates Teacher Brain board tools into a private-data-free Excalidraw scene", () => {
+    const scene = teacherBrainPlanScene({
+      board_actions: [
+        { type: "board.clear", region: "all" },
+        { type: "board.write_text", region: "top", text: "Equivalent fractions", element_id: "lesson.title" },
+        { type: "board.write_math", region: "center", latex: "\\frac{3}{4}", element_id: "fraction.value" },
+        { type: "board.draw_fraction_bars", fractions: ["3/4"], element_id: "fraction.bar" },
+        { type: "board.draw_number_line", min: 0, max: 1, marks: [{ value: 0.75, label: "3/4" }], element_id: "fraction.line" },
+        { type: "board.highlight", element_id: "fraction.value", style: "outline" },
+        { type: "board.render_custom", svg: "<svg><script>privateTranscript()</script></svg>", element_id: "custom.private" },
+      ],
+      narration_segments: [{ text: "Three fourths is three equal parts out of four.", language: "English", highlight_element_id: "fraction.value" }],
+      check_for_understanding: "What does the denominator count?",
+      pedagogical_rationale: "private operator rationale",
+      resume_guidance: "private resume plan",
+    }, "Equivalent fractions", "en", 4);
+
+    expect(scene).toMatchObject({
+      sceneId: "teacher-brain-4",
+      source: "agent-drawing",
+      status: "active",
+    });
+    expect(JSON.stringify(scene)).toContain("3/4");
+    expect(JSON.stringify(scene)).not.toContain("private operator rationale");
+    expect(JSON.stringify(scene)).not.toContain("private resume plan");
+    expect(JSON.stringify(scene)).not.toContain("privateTranscript");
+    expect(() => new ExcalidrawBoardController().render(scene)).not.toThrow();
   });
 });

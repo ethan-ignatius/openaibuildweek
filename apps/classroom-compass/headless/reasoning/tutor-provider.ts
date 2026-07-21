@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { sanitizeTranscript } from "../../domain/schemas";
+import { createTeacherBrainProviderFromEnvironment } from "./teacher-brain-provider";
 
 const visualNodeSchema = z.object({
   label: z.string().min(1).max(80),
@@ -27,6 +28,9 @@ export const tutorTurnSchema = z.object({
 export type TutorTurn = z.infer<typeof tutorTurnSchema> & {
   provider: string;
   model: string;
+  language?: "en" | "es";
+  boardPlan?: unknown;
+  providerMetadata?: Record<string, unknown>;
 };
 
 export type TutorHistoryItem = { role: "student" | "tutor"; content: string };
@@ -34,6 +38,7 @@ export type TutorQuestion = {
   transcript: string;
   lessonTitle: string;
   history: TutorHistoryItem[];
+  studentRef?: string;
   confidenceBand?: "low" | "medium" | "high";
   transcriptionSegments?: Array<{ text: string; alternatives: string[] }>;
 };
@@ -161,6 +166,9 @@ export class OllamaTutorProvider implements TutorAnswerProvider {
 
 export function createTutorProviderFromEnvironment(environment: Record<string, string | undefined>): TutorAnswerProvider | null {
   if (environment.CC_TUTOR_PROVIDER === "none") return null;
+  if (environment.CC_TUTOR_PROVIDER === "teacher-brain") {
+    return createTeacherBrainProviderFromEnvironment(environment);
+  }
   return new OllamaTutorProvider({
     endpoint: environment.CC_OLLAMA_URL,
     model: environment.CC_TUTOR_MODEL,

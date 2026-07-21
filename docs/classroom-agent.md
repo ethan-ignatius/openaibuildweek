@@ -12,18 +12,21 @@ the model API; it posts a detected student's transcribed question to one endpoin
 2. Ask for a teaching turn. The model returns validated board actions, the words to
    narrate, a check for understanding, operator-only pedagogical rationale, and
    explicit resume guidance.
-3. The harness applies every board action through the existing WebSocket hub and
-   records it as a replayable tool call.
-4. On a student interruption, stop current TTS and post the named student's
-   question. The harness updates only that learner's persistent note, creates a
-   response in the student's declared language, and returns where the lesson should
-   resume.
+3. The harness validates and journals every board action. Its legacy WebSocket hub
+   remains available for the M0 board; the live Classroom Compass path translates
+   the same private plan into a bounded public Excalidraw scene.
+4. On a student interruption, Classroom Compass stops or ducks current TTS and
+   posts the mapped student's question. The harness updates only that learner's
+   persistent note, creates a response in the student's declared language, and
+   returns where the lesson should resume.
 5. End the session. Learner notes remain available to future sessions under
    `state/learners/`; the session journal remains under `state/journals/classrooms/`.
 
 Each classroom serializes its turns, so two model responses cannot race to replace
-the board. Different classrooms remain independent. The current M2 server is a
-single-board, local deployment and does not include authentication.
+the board. Classroom Compass also queues up to three speech turns while an answer
+is active. Different classrooms remain independent. The current local deployment
+does not include authentication, and API session state is in process; persistent
+learner notes and journals survive a restart, but active session IDs do not.
 
 ## API
 
@@ -67,10 +70,11 @@ curl -X POST \
 
 The response's `plan.narration_segments` are the explanation for TTS; speak
 `check_for_understanding` immediately afterward. A segment's
-`highlight_element_id` tells the voice adapter which rendered element to emphasize
-while speaking. Board actions have already been schema-validated and sent to the
-live projector. An interruption plan can include `board.clear` for one region or
-the whole board, followed by a rebuilt explanation.
+`highlight_element_id` identifies the rendered element to emphasize. Board actions
+have already been schema-validated. Classroom Compass validates them again, creates
+the Excalidraw scene deterministically, and then replaces the tutor-owned scene. An
+interruption plan can include `board.clear` for one region or the whole board,
+followed by a rebuilt explanation.
 
 Inspect memory or close the classroom:
 
@@ -112,3 +116,30 @@ On a confirmed hand raise:
 
 Presence or hand-raise detection must not infer identity from a face. Map fixed seat
 regions to teacher-provided roster pseudonyms instead.
+
+## Classroom Compass and Excalidraw
+
+The current camera, microphone, interruption queue, speaker, and Excalidraw tooling
+lives in `apps/classroom-compass/`. Start its headless runtime with the Teacher Brain
+provider:
+
+```bash
+export CC_TUTOR_PROVIDER=teacher-brain
+export CC_TEACHER_BRAIN_API_URL=http://127.0.0.1:8000
+export CC_TEACHER_BRAIN_ROSTER_JSON='[{"studentRef":"camera-left","name":"Jordan","language":"English"}]'
+npm run dev:classroom
+```
+
+`studentRef` is the opaque seat or sensor reference emitted by the perception
+pipeline. `name` must be a teacher-authored first name or pseudonym; Classroom
+Compass does not resolve faces. Optional settings include
+`CC_TEACHER_BRAIN_OBJECTIVE`, `CC_TEACHER_BRAIN_SOURCE_MATERIAL`,
+`CC_TEACHER_BRAIN_SOURCE_REF`, and `CC_TEACHER_BRAIN_TIMEOUT_MS`.
+
+The adapter sends only the transcript and mapped student to the interruption API.
+It excludes learner notes, operator rationale, resume guidance, and other private
+fields from the public scene. Agent-supplied SVG is never projected: custom SVG
+actions become a safe placeholder, while text, equations, axes, number lines,
+fraction bars, highlights, and clears are rendered by deterministic code. Scene
+replacement currently clears the tutor-owned canvas; persistent teacher/student
+drawing layers are future work.

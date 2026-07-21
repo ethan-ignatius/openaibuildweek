@@ -1,5 +1,9 @@
 import { z } from "zod";
 import type { TutorTurn } from "../reasoning/tutor-provider";
+import {
+  teacherBrainPlanSchema,
+  type TeacherBrainBoardAction,
+} from "../reasoning/teacher-brain-provider";
 
 const coordinate = z.number().finite().min(-4_000).max(4_000);
 const dimension = z.number().finite().positive().max(4_000);
@@ -142,6 +146,269 @@ export function tutorThinkingScene(revision: number): ExcalidrawScene {
       { id: "thinking-arrow", type: "arrow", x: 500, y: 440, points: [[0, 0], [360, 0]], strokeColor: palette.amber, strokeWidth: 3 },
     ],
   };
+}
+
+const regionOrigins = {
+  top: { x: 80, y: 45 },
+  left: { x: 70, y: 185 },
+  center: { x: 470, y: 185 },
+  right: { x: 990, y: 185 },
+  scratch: { x: 70, y: 590 },
+  bottom: { x: 470, y: 700 },
+} as const;
+
+/** Translate Teacher Brain's validated board actions into a bounded public scene. */
+export function teacherBrainPlanScene(
+  candidate: unknown,
+  title: string,
+  language: "en" | "es",
+  revision: number,
+): ExcalidrawScene {
+  const plan = teacherBrainPlanSchema.parse(candidate);
+  const elements: BoardElement[] = [];
+  const usedIds = new Set<string>();
+  const actionIds = new Map<string, string>();
+  const regionOffsets: Record<keyof typeof regionOrigins, number> = {
+    top: 0,
+    left: 0,
+    center: 0,
+    right: 0,
+    scratch: 0,
+    bottom: 0,
+  };
+  let truncated = false;
+
+  const uniqueId = (candidateId: string) => {
+    const root = (candidateId.replace(/[^a-zA-Z0-9_-]/g, "-") || "element").slice(0, 72);
+    let resolved = root;
+    let suffix = 1;
+    while (usedIds.has(resolved)) {
+      resolved = `${root.slice(0, 68)}-${suffix}`;
+      suffix += 1;
+    }
+    usedIds.add(resolved);
+    return resolved;
+  };
+  const actionId = (raw: string) => {
+    const existing = actionIds.get(raw);
+    if (existing) return existing;
+    const resolved = uniqueId(raw);
+    actionIds.set(raw, resolved);
+    return resolved;
+  };
+  const add = (...candidates: BoardElement[]) => {
+    for (const element of candidates) {
+      if (elements.length >= 318) {
+        truncated = true;
+        return;
+      }
+      elements.push(element);
+    }
+  };
+  const place = (region: keyof typeof regionOrigins, height: number) => {
+    const origin = regionOrigins[region];
+    const placed = { x: origin.x, y: origin.y + regionOffsets[region] };
+    regionOffsets[region] += height;
+    return placed;
+  };
+
+  for (const action of plan.board_actions) {
+    if (action.type === "board.clear" || action.type === "board.unhighlight") continue;
+    if (action.type === "board.highlight") {
+      applyHighlight(elements, actionIds.get(action.element_id), action.style);
+      continue;
+    }
+    renderTeacherBrainAction(action, {
+      add,
+      actionId,
+      uniqueId,
+      place,
+    });
+  }
+  if (truncated) {
+    add(text(uniqueId("scene-truncated"), "Additional visual detail was omitted for projector safety.", 780, 760, 18, palette.amber));
+  }
+
+  return excalidrawSceneSchema.parse({
+    schemaVersion: 1,
+    sceneId: `teacher-brain-${revision}`,
+    revision,
+    title: title.slice(0, 120) || "Teacher Brain explanation",
+    language,
+    status: "active",
+    source: "agent-drawing",
+    elements,
+  });
+}
+
+type TeacherBrainDrawingContext = {
+  add: (...elements: BoardElement[]) => void;
+  actionId: (raw: string) => string;
+  uniqueId: (candidate: string) => string;
+  place: (
+    region: keyof typeof regionOrigins,
+    height: number,
+  ) => { x: number; y: number };
+};
+
+function renderTeacherBrainAction(
+  action: Exclude<TeacherBrainBoardAction, { type: "board.clear" | "board.highlight" | "board.unhighlight" }>,
+  context: TeacherBrainDrawingContext,
+) {
+  if (action.type === "board.write_text") {
+    const at = context.place(action.region, 100);
+    context.add(text(
+      context.actionId(action.element_id),
+      wrapText(action.text, action.region === "top" ? 90 : 44, 4).slice(0, 500),
+      at.x,
+      at.y,
+      action.region === "top" ? 38 : 25,
+      action.region === "top" ? palette.green : palette.ink,
+    ));
+    return;
+  }
+  if (action.type === "board.write_math") {
+    const at = context.place(action.region, 100);
+    context.add(text(
+      context.actionId(action.element_id),
+      plainMath(action.latex).slice(0, 500),
+      at.x,
+      at.y,
+      38,
+      palette.green,
+    ));
+    return;
+  }
+  if (action.type === "board.plot_function") {
+    const id = context.actionId(action.element_id);
+    const at = context.place("center", 230);
+    context.add(
+      text(context.uniqueId(`${id}-formula`), `f(x) = ${plainMath(action.expr)}`.slice(0, 500), at.x, at.y, 30, palette.green),
+      { id: context.uniqueId(`${id}-x-axis`), type: "line", x: at.x, y: at.y + 130, points: [[0, 0], [430, 0]], strokeColor: palette.ink, strokeWidth: 2 },
+      { id: context.uniqueId(`${id}-y-axis`), type: "line", x: at.x + 215, y: at.y + 45, points: [[0, 0], [0, 170]], strokeColor: palette.ink, strokeWidth: 2 },
+      text(context.uniqueId(`${id}-domain`), `${action.domain[0]} ≤ x ≤ ${action.domain[1]}`, at.x + 115, at.y + 170, 18, palette.muted),
+    );
+    return;
+  }
+  if (action.type === "board.draw_number_line") {
+    drawNumberLine(action, context);
+    return;
+  }
+  if (action.type === "board.draw_fraction_bars") {
+    drawFractionBars(action, context);
+    return;
+  }
+  if (action.type === "board.render_custom") {
+    const id = context.actionId(action.element_id);
+    const at = context.place("center", 90);
+    context.add(text(
+      id,
+      "Teacher Brain requested a custom diagram; raw SVG is intentionally not projected.",
+      at.x,
+      at.y,
+      20,
+      palette.muted,
+    ));
+    return;
+  }
+  if (action.type === "board.show_slide") {
+    const at = context.place("center", 90);
+    context.add(text(
+      context.uniqueId("active-slide"),
+      `Slide: ${action.slide_ref}`.slice(0, 500),
+      at.x,
+      at.y,
+      24,
+      palette.green,
+    ));
+  }
+}
+
+function drawNumberLine(
+  action: Extract<TeacherBrainBoardAction, { type: "board.draw_number_line" }>,
+  context: TeacherBrainDrawingContext,
+) {
+  const id = context.actionId(action.element_id);
+  const at = context.place("center", 175);
+  const width = 520;
+  const span = action.max - action.min || 1;
+  context.add(
+    { id: context.uniqueId(`${id}-axis`), type: "line", x: at.x, y: at.y + 60, points: [[0, 0], [width, 0]], strokeColor: palette.ink, strokeWidth: 3 },
+    text(context.uniqueId(`${id}-min`), String(action.min), at.x - 8, at.y + 88, 18),
+    text(context.uniqueId(`${id}-max`), String(action.max), at.x + width - 8, at.y + 88, 18),
+  );
+  for (const [index, mark] of action.marks.slice(0, 16).entries()) {
+    const ratio = Math.max(0, Math.min(1, (mark.value - action.min) / span));
+    const x = at.x + ratio * width;
+    context.add(
+      { id: context.uniqueId(`${id}-tick-${index}`), type: "line", x, y: at.y + 47, points: [[0, 0], [0, 26]], strokeColor: palette.green, strokeWidth: 2 },
+      text(context.uniqueId(`${id}-label-${index}`), (mark.label ?? String(mark.value)).slice(0, 80), x - 12, at.y + 20, 16, palette.green),
+    );
+  }
+}
+
+function drawFractionBars(
+  action: Extract<TeacherBrainBoardAction, { type: "board.draw_fraction_bars" }>,
+  context: TeacherBrainDrawingContext,
+) {
+  const id = context.actionId(action.element_id);
+  const at = context.place("center", Math.min(4, action.fractions.length) * 72 + 35);
+  for (const [row, fraction] of action.fractions.slice(0, 4).entries()) {
+    const [numeratorText, denominatorText] = fraction.split("/");
+    const numerator = Number(numeratorText);
+    const denominator = Number(denominatorText);
+    const y = at.y + row * 72;
+    context.add(text(context.uniqueId(`${id}-fraction-${row}`), fraction, at.x, y + 12, 22, palette.green));
+    if (denominator > 24) {
+      context.add(
+        { id: context.uniqueId(`${id}-summary-${row}`), type: "rectangle", x: at.x + 90, y, width: 500, height: 46, strokeColor: palette.green, backgroundColor: palette.paper, fillStyle: "solid", strokeWidth: 2 },
+        text(context.uniqueId(`${id}-summary-label-${row}`), `${numerator} shaded of ${denominator} equal parts`, at.x + 120, y + 12, 18, palette.muted),
+      );
+      continue;
+    }
+    const cellWidth = Math.min(42, 500 / denominator);
+    for (let index = 0; index < denominator; index += 1) {
+      context.add({
+        id: context.uniqueId(`${id}-cell-${row}-${index}`),
+        type: "rectangle",
+        x: at.x + 90 + index * cellWidth,
+        y,
+        width: cellWidth,
+        height: 46,
+        strokeColor: palette.green,
+        backgroundColor: index < numerator ? palette.lime : palette.paper,
+        fillStyle: "solid",
+        strokeWidth: 1,
+      });
+    }
+  }
+}
+
+function applyHighlight(
+  elements: BoardElement[],
+  target: string | undefined,
+  style: "pulse" | "outline" | "fill",
+) {
+  if (!target) return;
+  for (const element of elements) {
+    if (element.id !== target && !element.id.startsWith(`${target}-`)) continue;
+    element.strokeColor = style === "fill" ? palette.ink : palette.amber;
+    if (element.type !== "text") {
+      element.strokeWidth = style === "pulse" ? 4 : 3;
+      if (style === "fill") element.backgroundColor = palette.lime;
+    }
+  }
+}
+
+function plainMath(value: string) {
+  return value
+    .replace(/\\frac\{([^{}]+)\}\{([^{}]+)\}/g, "$1/$2")
+    .replace(/\\(?:times|cdot)/g, "×")
+    .replace(/\\leq?/g, "≤")
+    .replace(/\\geq?/g, "≥")
+    .replace(/[{}]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 export function genericTutorScene(turn: TutorTurn, revision: number): ExcalidrawScene {

@@ -11,7 +11,7 @@ camera / microphone processes
         ↓ JSON-line events
 headless sensor adapters
         ↓ sanitized, untrusted transcript
-reviewed computation tool or local Ollama tutor model
+reviewed computation tool, local Ollama model, or Teacher Brain
         ↓ schema-validated answer + visual plan
 local Excalidraw projector + speaker
         ↓ optional follow-up question
@@ -52,6 +52,32 @@ The simulated microphone question triggers the reviewed decimal policy. The head
 
 The Excalidraw toolbar remains available for touch, pen, or mouse additions. Tutor updates replace only the tutor scene; teacher/student drawing persistence and layer ownership are not yet implemented.
 
+## Use the learner-aware Teacher Brain
+
+From the repository root, start the Python API and Excalidraw projector in separate
+terminals:
+
+```bash
+.venv/bin/python -m uvicorn server.app.main:app --host 127.0.0.1 --port 8000
+npm run dev:excalidraw
+```
+
+Then map the perception pipeline's fixed seat references to teacher-provided names
+or pseudonyms and start Classroom Compass:
+
+```bash
+export CC_TUTOR_PROVIDER=teacher-brain
+export CC_TEACHER_BRAIN_API_URL=http://127.0.0.1:8000
+export CC_TEACHER_BRAIN_ROSTER_JSON='[{"studentRef":"camera-left","name":"Jordan","language":"English"}]'
+npm run dev:classroom
+```
+
+The provider creates a Teacher Brain session lazily, sends transcribed hand-raise
+questions to its interruption endpoint, speaks the returned explanation, and turns
+the validated private board plan into public Excalidraw elements. It never sends
+learner memory, pedagogical rationale, or raw custom SVG to the projector. If no
+provider is selected, the existing local Ollama path remains the default.
+
 ## Run the headless demo
 
 Prerequisite: Node.js 22.13 or newer.
@@ -76,7 +102,7 @@ The default voice path uses `whisper.cpp` locally on the Mac. It keeps the model
 One-time setup (about a 465 MB model download):
 
 ```bash
-cd "/Users/emanuelherrera/AI Builds/ClassroomCompass"
+cd apps/classroom-compass
 npm run voice:setup
 ```
 
@@ -85,14 +111,14 @@ The setup command installs the Homebrew `whisper-cpp` package when needed, downl
 In Terminal 1:
 
 ```bash
-cd "/Users/emanuelherrera/AI Builds/ClassroomCompass"
+cd apps/classroom-compass
 npm run board:dev
 ```
 
 Open the printed `/board` URL. In Terminal 2:
 
 ```bash
-cd "/Users/emanuelherrera/AI Builds/ClassroomCompass"
+cd apps/classroom-compass
 npm run voice:run
 ```
 
@@ -183,7 +209,7 @@ The combined command keeps running until `Ctrl-C` so the microphone remains acti
 
 The current room preset selects camera `IC840 1080P HD` and Whisper capture device `0` (`Audio Streaming`). Device numbering can change after reconnecting hardware, so confirm the capture list printed at startup. The camera must be able to see either the raised hand or the student’s shoulders and wrist; a head-only crop cannot support a shoulder-relative hand raise.
 
-### Local tutor model
+### Local Ollama tutor model
 
 Ollama must be running. The default model is `qwen3:4b`, selected after the smaller installed models failed factual smoke tests. It occupies about 2.5 GB. Check availability with:
 
@@ -201,6 +227,9 @@ CC_OLLAMA_URL=http://127.0.0.1:11434
 CC_TUTOR_TIMEOUT_MS=35000
 CC_TUTOR_PROVIDER=none              # disable open-ended model answers; reviewed tools still work
 ```
+
+Set `CC_TUTOR_PROVIDER=teacher-brain` to use the learner-aware Python service
+described above. `ollama` remains the implicit default for standalone use.
 
 The model receives sanitized transcript text and recent text conversation context—not raw microphone audio, video, student profiles, shell access, browser access, or unrestricted Excalidraw control.
 
@@ -257,7 +286,8 @@ Malformed events, unknown event kinds, and instruction-shaped classroom speech c
 - `headless/cli.ts` — primary command-line entry point
 - `headless/core/tutor-runtime.ts` — autonomous event loop, pause/stop, output, and observed evidence
 - `headless/policies/decimal-tutor-policy.ts` — reviewed decimal lesson and comprehension-check policy
-- `headless/reasoning/tutor-provider.ts` — provider-neutral tutor interface and schema-constrained local Ollama adapter
+- `headless/reasoning/tutor-provider.ts` — provider-neutral tutor interface and provider selection
+- `headless/reasoning/teacher-brain-provider.ts` — learner-aware Python API adapter and strict response validation
 - `headless/adapters/json-line-sensor.ts` — local camera/microphone subprocess bridge
 - `headless/adapters/whisper-stream-adapter.ts` — default local Whisper microphone transcription with overlapping-window and utterance merging
 - `headless/adapters/macos-speech-adapter.swift` — optional Apple Speech fallback
