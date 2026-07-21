@@ -226,6 +226,114 @@ describe("headless tutor runtime", () => {
     await runtime.stop();
   });
 
+  it("lets a second raised-hand question interrupt an answer and resumes only after the new answer", async () => {
+    const previousRaise = process.env.CC_REQUIRE_HAND_RAISE;
+    const previousAutostart = process.env.CC_AUTO_START_LESSON;
+    process.env.CC_REQUIRE_HAND_RAISE = "1";
+    process.env.CC_AUTO_START_LESSON = "0";
+    try {
+      const store = await storeFor("session-nested-interruption-test");
+      const delivered: TutorCommand[] = [];
+      let releaseSpanish!: () => void;
+      const output: ClassroomOutputAdapter = {
+        id: "interruptible-bilingual-output",
+        deliver: vi.fn(async (command: TutorCommand) => {
+          delivered.push(command);
+          if (command.text === "La fotosíntesis usa la luz para producir azúcar.") {
+            await new Promise<void>((resolve) => { releaseSpanish = resolve; });
+          }
+        }),
+        cancel: vi.fn(async () => releaseSpanish?.()),
+        close: vi.fn(async () => {}),
+      };
+      const plan = (label: string, language = "English") => ({
+        board_actions: [
+          { type: "board.clear" as const, region: "all" as const },
+          { type: "board.write_text" as const, region: "center" as const, text: label, element_id: label.toLowerCase().replace(/[^a-z0-9]+/g, "-") },
+        ],
+        narration_segments: [{ text: label, language }],
+        check_for_understanding: "What is the key idea?",
+        pedagogical_rationale: "Answer the interruption directly.",
+        resume_guidance: "Return to the main lesson.",
+      });
+      const answer = vi.fn(async (input: { studentRef?: string }) => input.studentRef === "seat:camera-right"
+        ? {
+            disposition: "answer" as const,
+            answer: "La fotosíntesis usa la luz para producir azúcar.",
+            spokenAnswer: "La fotosíntesis usa la luz para producir azúcar.",
+            spokenSegments: [
+              { text: "La fotosíntesis usa la luz para producir azúcar.", language: "es" as const },
+              { text: "In English: photosynthesis uses light to make sugar.", language: "en" as const },
+            ],
+            visual: { title: "La fotosíntesis", nodes: [], connections: [] },
+            followUpQuestion: "¿Qué aporta la luz?",
+            provider: "teacher-brain-fixture",
+            model: "fixture",
+            language: "es" as const,
+            boardPlan: plan("La fotosíntesis", "Spanish"),
+            providerMetadata: { resumeGuidance: "Return to the main lesson." },
+          }
+        : {
+            disposition: "answer" as const,
+            answer: "Roots absorb water from the soil.",
+            spokenAnswer: "Roots absorb water from the soil.",
+            visual: { title: "Plant roots", nodes: [], connections: [] },
+            followUpQuestion: "Where does the water enter?",
+            provider: "teacher-brain-fixture",
+            model: "fixture",
+            language: "en" as const,
+            boardPlan: plan("Roots absorb water"),
+            providerMetadata: { resumeGuidance: "Return to the main lesson." },
+          });
+      const resumeLesson = vi.fn(async () => ({
+        disposition: "answer" as const,
+        answer: "Now we will continue the lesson in English.",
+        spokenAnswer: "Now we will continue the lesson in English.",
+        visual: { title: "Main lesson", nodes: [], connections: [] },
+        followUpQuestion: "What comes next?",
+        provider: "teacher-brain-fixture",
+        model: "fixture",
+        language: "en" as const,
+        boardPlan: plan("Main lesson continues"),
+      }));
+      const provider: TutorAnswerProvider = {
+        id: "teacher-brain-fixture",
+        answer,
+        resumeLesson,
+        languageForStudent: (studentRef) => studentRef === "seat:camera-right" ? "es" : "en",
+        displayNameForStudent: (studentRef) => studentRef === "seat:camera-right" ? "Emanuel" : "Ethan",
+      };
+      const runtime = new TutorRuntime(store, [], output, provider);
+      await runtime.start();
+      const base = { sessionId: "session-nested-interruption-test", source: "live" as const, occurredAt: new Date().toISOString(), provenance: { adapter: "fixture", version: "1", confidenceBand: "high" as const } };
+
+      await runtime.handleEvent({ ...base, id: "emanuel-raise", kind: "hand_raise", payload: { seat: "camera-right" } });
+      const firstTurn = runtime.handleEvent({ ...base, id: "emanuel-question", kind: "question_transcribed", payload: { text: "¿Cómo produce azúcar una planta?" } });
+      await vi.waitFor(() => expect(delivered.some((command) => command.text === "La fotosíntesis usa la luz para producir azúcar.")).toBe(true));
+
+      await runtime.handleEvent({ ...base, id: "ethan-raise", kind: "hand_raise", payload: { seat: "camera-left" } });
+      await runtime.handleEvent({ ...base, id: "ethan-question", kind: "question_transcribed", payload: { text: "How do roots take in water?" } });
+      await firstTurn;
+
+      expect(output.cancel).toHaveBeenCalledOnce();
+      expect(answer).toHaveBeenCalledTimes(2);
+      expect(vi.mocked(answer).mock.calls.map(([input]) => input.studentRef)).toEqual(["seat:camera-right", "seat:camera-left"]);
+      expect(delivered.some((command) => command.text === "Emanuel, te escucho. Adelante con tu pregunta.")).toBe(true);
+      expect(delivered.some((command) => command.text === "Ethan, go ahead with your question.")).toBe(true);
+      expect(delivered.some((command) => command.text?.startsWith("In English: photosynthesis"))).toBe(false);
+      expect(delivered.some((command) => command.text === "Roots absorb water from the soil.")).toBe(true);
+      expect(resumeLesson).toHaveBeenCalledOnce();
+      expect(runtime.snapshot().audit.some((entry) => entry.action === "tutor_answer_interrupted")).toBe(true);
+      expect(runtime.snapshot().audit.some((entry) => entry.action === "lesson_resumed")).toBe(true);
+      await runtime.stop();
+    } finally {
+      if (previousRaise === undefined) delete process.env.CC_REQUIRE_HAND_RAISE;
+      else process.env.CC_REQUIRE_HAND_RAISE = previousRaise;
+      if (previousAutostart === undefined) delete process.env.CC_AUTO_START_LESSON;
+      else process.env.CC_AUTO_START_LESSON = previousAutostart;
+    }
+  });
+
   it("can wait for a raised hand without auto-starting a Teacher Brain lesson", async () => {
     const previous = process.env.CC_AUTO_START_LESSON;
     process.env.CC_AUTO_START_LESSON = "0";

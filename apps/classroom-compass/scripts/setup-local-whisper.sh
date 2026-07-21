@@ -4,9 +4,9 @@ set -eu
 project_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 repository_dir=$(CDPATH= cd -- "$project_dir/../.." && pwd)
 model_dir="${CC_RUNTIME_DIR:-$repository_dir/.classroom-compass}/models"
-model_file="$model_dir/ggml-small.en.bin"
-model_url="https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en.bin"
-expected_sha256="c6138d6d58ecc8322097e0f987c32f1be8bb0a18532a3f88f734d1bbf9c41e5d"
+model_file="$model_dir/ggml-small.bin"
+model_url="https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin"
+expected_sha256="1be3a9b2063867b937e64e2ec7483364a79917e157fa98c5d94b5c1fffea987b"
 
 if ! command -v whisper-stream >/dev/null 2>&1; then
   if ! command -v brew >/dev/null 2>&1; then

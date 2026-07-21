@@ -213,11 +213,19 @@ export class TutorRuntime {
     this.calledOn = calledOn;
     process.stderr.write(`Listening window opened for ${seat} (${Math.round(this.calledOnWindowMs / 1_000)} seconds).\n`);
     const language = this.tutorProvider?.languageForStudent?.(calledOn.studentRef) ?? "en";
-    await this.store.appendAudit("hand_raise_acknowledged", `A live hand-raise event ${zone} was acknowledged without identifying a person.`);
+    const displayName = this.tutorProvider?.displayNameForStudent?.(calledOn.studentRef);
+    await this.store.appendAudit(
+      "hand_raise_acknowledged",
+      displayName
+        ? `A live hand-raise event ${zone} was associated with ${displayName} using the teacher-authored seating plan.`
+        : `A live hand-raise event ${zone} was acknowledged without inferring an identity.`,
+    );
     await this.speak(
       language === "es"
-        ? "Veo una mano levantada. Adelante con tu pregunta."
-        : `I see a raised hand ${zone}. Go ahead with your question.`,
+        ? `${displayName ? `${displayName}, ` : ""}te escucho. Adelante con tu pregunta.`
+        : displayName
+          ? `${displayName}, go ahead with your question.`
+          : `I see a raised hand ${zone}. Go ahead with your question.`,
       language,
     );
     if (this.calledOn === calledOn) calledOn.expiresAt = Date.now() + this.calledOnWindowMs;
@@ -291,17 +299,18 @@ export class TutorRuntime {
           { role: "tutor", content: `${turn.answer}${turn.followUpQuestion ? ` ${turn.followUpQuestion}` : ""}` },
         );
         this.conversation = this.conversation.slice(-8);
-        if (turn.boardPlan) {
-          await this.deliverTutorTurn(turn, false);
-        } else {
-          await this.showBoard(genericTutorScene(turn, ++this.boardRevision));
-          await this.speak(turn.spokenAnswer, turn.language ?? studentLanguage);
+        const completed = await this.deliverTutorTurn(turn, true);
+        if (!turn.boardPlan && completed) {
           const generalCheck = this.activateGeneralCheck(event, turn);
-          if (generalCheck) await this.speak(generalCheck.check.prompt, turn.language ?? studentLanguage);
+          if (generalCheck) {
+            await this.store.appendAudit("comprehension_check_opened", "The tutor finished its explanation and is listening for the response to the displayed check.");
+          }
         }
         await this.store.appendAudit("tutor_model_answered", `${turn.provider} produced a validated ${turn.disposition} response using ${turn.model}.`);
         modelAnswered = true;
-        if (this.tutorProvider.resumeLesson) {
+        if (!completed) {
+          await this.store.appendAudit("tutor_answer_interrupted", "A confirmed hand raise stopped the current explanation; its remaining narration and automatic lesson resume were skipped.");
+        } else if (this.tutorProvider.resumeLesson) {
           try {
             const resumeGuidance = typeof turn.providerMetadata?.resumeGuidance === "string"
               ? turn.providerMetadata.resumeGuidance

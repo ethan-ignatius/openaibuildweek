@@ -71,7 +71,7 @@ and start the API in terminal 1:
 
 ```bash
 source .venv/bin/activate
-uvicorn server.app.main:app --host 127.0.0.1 --port 8000
+uvicorn server.app.main:app --env-file .env --host 127.0.0.1 --port 8000
 ```
 
 Start the Classroom Compass projector in terminal 2:
@@ -120,6 +120,10 @@ system speech in terminal 2:
 npm run room:preview
 ```
 
+Keep the Teacher Brain API from the previous section running on port `8000`.
+The room presets load the repository `.env` automatically, so the saved provider,
+roster, and language settings are used without re-exporting them in the shell.
+
 The room preset looks for `Logitech Webcam C925e` and then `Audio Streaming` as
 microphone aliases. Override the selection if necessary:
 
@@ -132,6 +136,13 @@ wrists, and the raised palm to be visible. A raise must show an upward arm and a
 open palm for several frames. The first usable transcript within the called-on
 window is associated with the rough left/center/right seat region; this is
 turn-taking association, not speaker or face recognition.
+
+The prototype seating plan maps `camera-right` to Emanuel (declared Spanish) and
+`camera-left` to Ethan (declared English). The multilingual local Whisper model
+detects whether the question itself is English or Spanish; that spoken language
+takes precedence over the profile default. Spanish interruption explanations and
+visuals lead in Spanish and include a short English recap, while the main lesson
+opens and resumes in English.
 
 ## Classroom Compass commands
 

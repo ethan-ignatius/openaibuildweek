@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { createTutorProviderFromEnvironment } from "../../headless/reasoning/tutor-provider";
 import {
+  questionLanguage,
   teacherBrainPlanSchema,
   TeacherBrainTutorProvider,
 } from "../../headless/reasoning/teacher-brain-provider";
@@ -56,7 +57,7 @@ describe("Teacher Brain API tutor provider", () => {
     });
 
     const turn = await provider.answer({
-      transcript: "Why does the bottom number mean equal parts?",
+      transcript: "¿Por qué el número de abajo representa partes iguales?",
       lessonTitle: "Equivalent fractions",
       history: [],
       studentRef: "seat-a2",
@@ -70,7 +71,7 @@ describe("Teacher Brain API tutor provider", () => {
     expect(requests[1].url).toContain("/classroom-fixture/interruptions");
     expect(requests[1].body).toEqual({
       student: "Jordan",
-      question: "Why does the bottom number mean equal parts?",
+      question: "¿Por qué el número de abajo representa partes iguales?",
       language: "Spanish",
     });
     expect(turn.language).toBe("es");
@@ -101,6 +102,74 @@ describe("Teacher Brain API tutor provider", () => {
     });
     expect(provider?.id).toBe("teacher-brain-api@1.0.0");
     expect(createTutorProviderFromEnvironment({})?.id).toBe("ollama-local-tutor@1.0.0");
+  });
+
+  it("uses the fixed seating profiles and follows the language actually spoken", () => {
+    const provider = createTutorProviderFromEnvironment({
+      CC_TUTOR_PROVIDER: "teacher-brain",
+      CC_TEACHER_BRAIN_API_URL: "http://127.0.0.1:8000",
+    });
+    expect(provider).toBeInstanceOf(TeacherBrainTutorProvider);
+    const teacherBrain = provider as TeacherBrainTutorProvider;
+    expect(teacherBrain.roster()).toEqual([
+      { studentRef: "seat:camera-right", name: "Emanuel", language: "Spanish" },
+      { studentRef: "seat:camera-left", name: "Ethan", language: "English" },
+    ]);
+    expect(teacherBrain.languageForStudent("seat:camera-right")).toBe("es");
+    expect(teacherBrain.languageForStudent("seat:camera-left")).toBe("en");
+    expect(teacherBrain.displayNameForStudent("seat:camera-right")).toBe("Emanuel");
+    expect(teacherBrain.displayNameForStudent("seat:camera-left")).toBe("Ethan");
+    expect(questionLanguage("¿Cómo funciona la fotosíntesis?", "English")).toBe("Spanish");
+    expect(questionLanguage("How does photosynthesis work?", "Spanish")).toBe("English");
+    expect(questionLanguage("Photosynthesis?", "Spanish")).toBe("Spanish");
+  });
+
+  it("sends the spoken language and fixed seat identity to Teacher Brain", async () => {
+    const requests: Array<{ url: string; body: Record<string, unknown> }> = [];
+    const fetcher = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      requests.push({ url, body });
+      if (url.endsWith("/api/teacher/sessions")) {
+        return jsonResponse({ session_id: "fixed-seating-fixture", status: "active" });
+      }
+      return jsonResponse({
+        session_id: "fixed-seating-fixture",
+        turn_index: 1,
+        kind: "interruption",
+        student: "Emanuel",
+        plan: {
+          board_actions: [
+            { type: "board.clear", region: "all" },
+            { type: "board.write_text", region: "top", text: "Water cycle", element_id: "title" },
+          ],
+          narration_segments: [{ text: "Water evaporates when it gains heat.", language: "English" }],
+          check_for_understanding: "What happens after evaporation?",
+          pedagogical_rationale: "Connect heat to a change of state.",
+          resume_guidance: "Return to the main lesson.",
+        },
+        token_usage: { input: 20, output: 10, total: 30 },
+        latency_ms: 8,
+      });
+    });
+    const provider = new TeacherBrainTutorProvider({ fetcher: fetcher as typeof fetch });
+
+    await provider.answer({
+      transcript: "How does water become a cloud?",
+      lessonTitle: "Water cycle",
+      history: [],
+      studentRef: "seat:camera-right",
+    });
+
+    expect(requests[0].body.students).toEqual([
+      { name: "Emanuel", language: "Spanish" },
+      { name: "Ethan", language: "English" },
+    ]);
+    expect(requests[1].body).toEqual({
+      student: "Emanuel",
+      question: "How does water become a cloud?",
+      language: "English",
+    });
   });
 
   it("turns safe labels from a requested custom sketch into Visual Stage concept cards", async () => {
@@ -201,7 +270,10 @@ describe("Teacher Brain API tutor provider", () => {
 
     expect(opening.spokenAnswer).toContain("Lesson narration 1");
     expect(resumed.spokenAnswer).toContain("Lesson narration 2");
-    expect(requests.filter((request) => request.url.endsWith("/teach"))).toHaveLength(2);
+    const teachingRequests = requests.filter((request) => request.url.endsWith("/teach"));
+    expect(teachingRequests).toHaveLength(2);
+    expect(teachingRequests[0].body.instruction).toContain("main lesson in English");
+    expect(teachingRequests[1].body.instruction).toContain("main lesson in English");
     expect(requests.at(-1)?.body.instruction).toContain("Return to the number line");
     expect(provider.classroomSessionId()).toBe("classroom-lifecycle");
     expect(provider.languageForStudent("seat-spanish")).toBe("es");

@@ -186,7 +186,7 @@ class LocalWhisperMicrophone {
 
   async start() {
     const executable = process.env.CC_WHISPER_BINARY ?? "whisper-stream";
-    const model = path.resolve(process.env.CC_WHISPER_MODEL ?? "../../.classroom-compass/models/ggml-small.en.bin");
+    const model = path.resolve(process.env.CC_WHISPER_MODEL ?? "../../.classroom-compass/models/ggml-small.bin");
     try {
       await access(model);
     } catch {
@@ -212,7 +212,7 @@ class LocalWhisperMicrophone {
     const stepMs = process.env.CC_WHISPER_STEP_MS ?? "0";
     const args = [
       "--model", model,
-      "--language", process.env.CC_WHISPER_LANGUAGE ?? "en",
+      "--language", process.env.CC_WHISPER_LANGUAGE ?? "auto",
       "--step", stepMs,
       "--length", process.env.CC_WHISPER_WINDOW_MS ?? "10000",
       "--vad-thold", process.env.CC_WHISPER_VAD_THRESHOLD ?? "0.50",

@@ -14,7 +14,7 @@ the model API; it posts a detected student's transcribed question to one endpoin
    explicit resume guidance.
 3. The harness validates and journals every board action. Its legacy WebSocket hub
    remains available for the M0 board; the live Classroom Compass path translates
-   the same private plan into a bounded public Excalidraw scene.
+   the same private plan into a bounded public Visual Stage scene.
 4. On a student interruption, Classroom Compass stops or ducks current TTS and
    posts the mapped student's question. The harness updates only that learner's
    persistent note, creates a response in the student's declared language, and
@@ -117,18 +117,23 @@ On a confirmed hand raise:
 Presence or hand-raise detection must not infer identity from a face. Map fixed seat
 regions to teacher-provided roster pseudonyms instead.
 
-## Classroom Compass and Excalidraw
+## Classroom Compass and Visual Stage
 
-The current camera, microphone, interruption queue, speaker, and Excalidraw tooling
+The current camera, microphone, interruption queue, speaker, and Visual Stage tooling
 lives in `apps/classroom-compass/`. Start its headless runtime with the Teacher Brain
 provider:
 
 ```bash
 export CC_TUTOR_PROVIDER=teacher-brain
 export CC_TEACHER_BRAIN_API_URL=http://127.0.0.1:8000
-export CC_TEACHER_BRAIN_ROSTER_JSON='[{"studentRef":"camera-left","name":"Jordan","language":"English"}]'
 npm run dev:classroom
 ```
+
+When no roster override is supplied, the prototype seating plan enrolls Emanuel
+at `seat:camera-right` with Spanish as his configured language and Ethan at
+`seat:camera-left` with English as his configured language. Teacher Brain creates
+both learner notes when it opens the classroom session. These mappings come from
+fixed RTMPose seat zones and are not inferred identities.
 
 `studentRef` is the opaque seat or sensor reference emitted by the perception
 pipeline. `name` must be a teacher-authored first name or pseudonym; Classroom
@@ -138,9 +143,9 @@ Compass does not resolve faces. Optional settings include
 
 The adapter sends only the transcript and mapped student to the interruption API.
 It excludes learner notes, operator rationale, resume guidance, and other private
-fields from the public scene. Agent-supplied SVG is never projected: custom SVG
-actions become a safe placeholder, while text, equations, axes, number lines,
-fraction bars, highlights, and clears are rendered by deterministic code. Scene
+fields from the public scene. Agent-supplied SVG is never projected: its bounded
+text labels become safe Visual Stage cards and icons, while equations, axes, number
+lines, fraction bars, highlights, and clears are rendered by deterministic code. Scene
 replacement currently clears the tutor-owned canvas; persistent teacher/student
 drawing layers are future work.
 

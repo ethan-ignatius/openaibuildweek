@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
+import { defaultTeacherBrainRoster } from "../config/classroom-seating-plan";
 import type {
   TutorAnswerProvider,
   TutorLessonInput,
@@ -141,20 +142,21 @@ export class TeacherBrainTutorProvider implements TutorAnswerProvider {
   private profilesByRef = new Map<string, TeacherBrainRosterEntry>();
 
   constructor(private options: TeacherBrainProviderOptions = {}) {
-    for (const entry of teacherBrainRosterSchema.parse(options.roster ?? [])) {
+    for (const entry of teacherBrainRosterSchema.parse(options.roster ?? defaultTeacherBrainRoster())) {
       this.profilesByRef.set(entry.studentRef, entry);
     }
   }
 
   async answer(input: TutorQuestion, signal?: AbortSignal): Promise<TutorTurn> {
     const profile = this.profileFor(input.studentRef);
+    const responseLanguage = questionLanguage(input.transcript, profile.language);
     const sessionId = await this.ensureSession(input.lessonTitle, profile, signal);
     const result = await this.post(
       `/api/teacher/sessions/${encodeURIComponent(sessionId)}/interruptions`,
       {
         student: profile.name,
         question: input.transcript,
-        language: profile.language,
+        language: responseLanguage,
       },
       teachingTurnResponseSchema,
       signal,
@@ -171,7 +173,7 @@ export class TeacherBrainTutorProvider implements TutorAnswerProvider {
       `/api/teacher/sessions/${encodeURIComponent(sessionId)}/teach`,
       {
         instruction: this.options.openingInstruction
-          ?? "Begin the lesson with one concrete representation and a short check for understanding.",
+          ?? "Begin the main lesson in English with one concrete representation and a short check for understanding.",
       },
       teachingTurnResponseSchema,
       signal,
@@ -186,7 +188,7 @@ export class TeacherBrainTutorProvider implements TutorAnswerProvider {
     const sessionId = await this.ensureSession(input.lessonTitle, undefined, signal);
     const guidance = input.resumeGuidance?.trim();
     const instruction = this.options.resumeInstruction
-      ?? "Resume the interrupted lesson with a brief verbal bridge. Continue from the stored resume guidance without repeating the interruption answer.";
+      ?? "Resume the main lesson in English with a brief verbal bridge. Continue from the stored resume guidance without repeating the interruption answer.";
     const result = await this.post(
       `/api/teacher/sessions/${encodeURIComponent(sessionId)}/teach`,
       {
@@ -200,6 +202,11 @@ export class TeacherBrainTutorProvider implements TutorAnswerProvider {
 
   languageForStudent(studentRef?: string): "en" | "es" {
     return languageCode(this.profileFor(studentRef).language);
+  }
+
+  displayNameForStudent(studentRef?: string): string | undefined {
+    const reference = studentRef?.trim();
+    return reference ? this.profilesByRef.get(reference)?.name : undefined;
   }
 
   classroomSessionId(): string | null {
@@ -384,7 +391,7 @@ export class TeacherBrainTutorProvider implements TutorAnswerProvider {
 export function createTeacherBrainProviderFromEnvironment(
   environment: Record<string, string | undefined>,
 ): TeacherBrainTutorProvider {
-  let roster: TeacherBrainRosterEntry[] = [];
+  let roster: TeacherBrainRosterEntry[] = defaultTeacherBrainRoster();
   if (environment.CC_TEACHER_BRAIN_ROSTER_JSON) {
     roster = teacherBrainRosterSchema.parse(
       JSON.parse(environment.CC_TEACHER_BRAIN_ROSTER_JSON),
@@ -419,6 +426,24 @@ function languageCode(value: string): "en" | "es" {
   return normalized === "es" || normalized.startsWith("es-") || normalized.includes("spanish")
     ? "es"
     : "en";
+}
+
+export function questionLanguage(transcript: string, configuredLanguage: string): "English" | "Spanish" {
+  const normalized = ` ${transcript.toLocaleLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zñ0-9]+/g, " ")} `;
+  const spanishSignals = [
+    " que ", " como ", " por que ", " porque ", " cual ", " donde ", " cuando ", " quien ",
+    " es ", " son ", " una ", " uno ", " el ", " la ", " los ", " las ", " puede ", " funciona ",
+  ];
+  const englishSignals = [
+    " what ", " how ", " why ", " which ", " where ", " when ", " who ", " is ", " are ",
+    " the ", " a ", " an ", " can ", " does ", " do ", " work ", " mean ",
+  ];
+  const spanishScore = spanishSignals.filter((signal) => normalized.includes(signal)).length
+    + (/[¿¡ñ]/i.test(transcript) ? 2 : 0);
+  const englishScore = englishSignals.filter((signal) => normalized.includes(signal)).length;
+  if (spanishScore > englishScore && spanishScore >= 2) return "Spanish";
+  if (englishScore > spanishScore && englishScore >= 2) return "English";
+  return languageCode(configuredLanguage) === "es" ? "Spanish" : "English";
 }
 
 function actionSummary(

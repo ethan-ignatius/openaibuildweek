@@ -94,6 +94,7 @@ export interface TutorAnswerProvider {
   beginLesson?(input: TutorLessonInput, signal?: AbortSignal): Promise<TutorTurn>;
   resumeLesson?(input: TutorLessonInput, signal?: AbortSignal): Promise<TutorTurn>;
   languageForStudent?(studentRef?: string): "en" | "es";
+  displayNameForStudent?(studentRef?: string): string | undefined;
 }
 
 export const tutorTurnJsonSchema = {

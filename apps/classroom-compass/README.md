@@ -118,7 +118,7 @@ cd apps/classroom-compass
 npm run voice:setup
 ```
 
-The setup command installs the Homebrew `whisper-cpp` package when needed, downloads the official `small.en` model, and verifies its SHA-256 checksum.
+The setup command installs the Homebrew `whisper-cpp` package when needed, downloads the official multilingual `small` model, and verifies its SHA-256 checksum. The room presets run language detection in `auto` mode so English and Spanish questions remain in their spoken language.
 
 In Terminal 1:
 
@@ -219,7 +219,9 @@ npm run room:preview
 
 The combined command keeps running until `Ctrl-C` so the microphone remains active if the preview window is closed. Custom fixed seat polygons can be based on `config/seat-regions.example.json` and passed to the adapter with `--regions`. All inference is local; frames remain in memory, no face identity is created, and raw media saved remains zero.
 
-The current room preset selects camera `IC840 1080P HD` and Whisper capture device `0` (`Audio Streaming`). Device numbering can change after reconnecting hardware, so confirm the capture list printed at startup. The camera must be able to see either the raised hand or the student’s shoulders and wrist; a head-only crop cannot support a shoulder-relative hand raise.
+The room preset resolves `Logitech Webcam C925e` by name before falling back to `Audio Streaming`; device numbering can change after reconnecting hardware, so confirm the capture list printed at startup. The camera must be able to see the open palm, shoulders, elbows, and wrist. The fixed prototype seating plan maps camera-right to Emanuel (declared Spanish) and camera-left to Ethan (declared English). These are teacher-authored seat profiles, not biometric identification.
+
+With Teacher Brain enabled, the main lesson starts and resumes in English. A confirmed raised hand immediately stops interruptible speech, calls on the mapped seat, and opens a listening window. The response follows the language detected in the question, using the seat profile as a fallback. Spanish explanations and diagrams include a brief English recap before the lesson resumes. A second raised hand can interrupt an answer; the skipped narration is not played over the new student’s question.
 
 ### Local Ollama tutor model
 

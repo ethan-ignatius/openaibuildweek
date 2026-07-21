@@ -5,6 +5,7 @@ import { ConsoleClassroomOutput, systemSpeakerForPlatform } from "./adapters/cla
 import { FixtureSensorAdapter } from "./adapters/fixture-sensor";
 import { TeacherBrainDemoSensorAdapter } from "./adapters/teacher-brain-demo-sensor";
 import { JsonLineSensorAdapter, parseCommandSpec } from "./adapters/json-line-sensor";
+import { defaultTeacherBrainRoster } from "./config/classroom-seating-plan";
 import { ControlServer } from "./control/control-server";
 import { TutorRuntime } from "./core/tutor-runtime";
 import type { ClassroomOutputAdapter, SensorAdapter } from "./core/types";
@@ -55,11 +56,8 @@ async function runTeacherBrainDemo() {
   const demoEnvironment = {
     ...process.env,
     CC_TUTOR_PROVIDER: "teacher-brain",
-    CC_TEACHER_BRAIN_ROSTER_JSON: process.env.CC_TEACHER_BRAIN_ROSTER_JSON ?? JSON.stringify([
-      { studentRef: "seat-english", name: "Jordan", language: "English" },
-      { studentRef: "seat-spanish", name: "Sofia", language: "Spanish" },
-      { studentRef: "seat-quiet", name: "Riley", language: "English" },
-    ]),
+    CC_TEACHER_BRAIN_ROSTER_JSON: process.env.CC_TEACHER_BRAIN_ROSTER_JSON
+      ?? JSON.stringify(defaultTeacherBrainRoster()),
   };
   const provider = createTutorProviderFromEnvironment(demoEnvironment);
   if (!(provider instanceof TeacherBrainTutorProvider)) {
