@@ -602,6 +602,9 @@ describe("headless tutor runtime", () => {
     expect(runtime.publicBoardState()).toMatchObject({ sceneId: "general-tutor-answer", source: "agent-drawing" });
     expect(JSON.stringify(runtime.publicBoardState())).toContain("Why the sky looks blue");
     expect(output.delivered.some((command) => command.text?.includes("daytime sky looks blue"))).toBe(true);
+    expect(output.delivered.filter((command) => command.toolId === "visual-stage.renderScene")).toHaveLength(1);
+    expect(output.delivered.some((command) => command.params?.scene && JSON.stringify(command.params.scene).includes("tutor-thinking"))).toBe(false);
+    expect(runtime.snapshot().audit.some((entry) => entry.action === "tutor_preparing")).toBe(true);
     expect(runtime.snapshot().audit.some((entry) => entry.action === "tutor_model_answered")).toBe(true);
     await runtime.stop();
   });
@@ -649,7 +652,7 @@ describe("headless tutor runtime", () => {
       studentRef: "seat-a2",
     }), expect.any(AbortSignal));
     expect(runtime.publicBoardState()).toMatchObject({
-      sceneId: "teacher-brain-2",
+      sceneId: "teacher-brain-1",
       source: "agent-drawing",
     });
     expect(JSON.stringify(runtime.publicBoardState())).toContain("1/2");

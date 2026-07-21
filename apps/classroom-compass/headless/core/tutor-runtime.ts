@@ -3,7 +3,7 @@ import { DecimalTutorPolicy } from "../policies/decimal-tutor-policy";
 import { ArithmeticTutorPolicy } from "../policies/arithmetic-tutor-policy";
 import { LocalEventStore } from "../storage/local-event-store";
 import type { ComprehensionCheck, TutorAnswerProvider, TutorAssessment, TutorHistoryItem, TutorTurn } from "../reasoning/tutor-provider";
-import { coachingFeedbackScene, decimalComparisonScene, genericTutorScene, teacherBrainVisualStageScene, tutorThinkingScene, VisualStageBoardController, type VisualStageScene } from "../whiteboard/excalidraw-tool";
+import { coachingFeedbackScene, decimalComparisonScene, genericTutorScene, teacherBrainVisualStageScene, VisualStageBoardController, type VisualStageScene } from "../whiteboard/excalidraw-tool";
 import { screenCalledOnUtterance, stripKnownTutorSpeech, transcriptSimilarity } from "./turn-filter";
 
 type GeneralCheckState = {
@@ -302,8 +302,7 @@ export class TutorRuntime {
     if (this.tutorProvider) {
       this.processingQuestion = true;
       const studentLanguage = this.tutorProvider.languageForStudent?.(event.studentRef) ?? "en";
-      await this.showBoard(tutorThinkingScene(++this.boardRevision, studentLanguage));
-      await this.store.appendAudit("tutor_thinking", "The tutor kept the current turn open while preparing one explanation; no extra microphone turn was created.");
+      await this.store.appendAudit("tutor_preparing", `The tutor kept the current ${studentLanguage} turn open while preparing one explanation; the previous teaching visual remained on the board.`);
       await this.store.appendAudit("tutor_model_requested", `Sent a sanitized, untrusted transcript to ${this.tutorProvider.id}.`);
       try {
         const requestEpoch = this.speechEpoch;

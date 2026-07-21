@@ -60,7 +60,7 @@ npm run voice:build
 npm run voice:run
 ```
 
-Allow the macOS Microphone and Speech Recognition permissions. Ask any educational question, remain quiet for about two seconds, and watch the thinking scene followed by the generated Visual Stage explanation. Good examples include “Why is the sky blue?”, “How does photosynthesis work?”, and “What is the difference between area and perimeter?” Keep speaker output disabled unless using headphones so the transcriber does not hear the tutor itself.
+Allow the macOS Microphone and Speech Recognition permissions. Ask any educational question, remain quiet for about two seconds, and watch the current teaching visual remain in place until the generated Visual Stage explanation is ready. Good examples include “Why is the sky blue?”, “How does photosynthesis work?”, and “What is the difference between area and perimeter?” Keep speaker output disabled unless using headphones so the transcriber does not hear the tutor itself.
 
 The default board prioritizes presentation speed and clarity. Open `/board/excalidraw` instead when you want to add freehand marks with a pen, touch, or mouse.
 

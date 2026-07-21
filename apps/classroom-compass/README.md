@@ -147,7 +147,7 @@ Pause for about two seconds. The Visual Stage explanation should appear. After t
 
 > Zero point four zero is greater.
 
-You can instead ask a different educational question. The live service uses the local Ollama model rather than matching it against prewritten questions. The first model response may take roughly 5–20 seconds on a small laptop; the board displays a thinking state immediately.
+You can instead ask a different educational question. The live service uses the local Ollama model rather than matching it against prewritten questions. The first model response may take roughly 5–20 seconds on a small laptop; the current teaching visual stays on the board until the next explanation is ready.
 
 Follow-up utterances retain the recent student/tutor conversation. If a student begins speaking while an answer is finishing, up to three turns are queued instead of discarded. Transcripts that closely match current speaker output are ignored as probable acoustic echo. Because speech recognition can still omit decimal points, medium- or low-confidence contradictory math transcripts now receive a clarification question; the tutor does not confidently solve the misheard expression. The macOS adapter also passes segment-level recognition alternatives to the tutor when Apple provides them.
 
