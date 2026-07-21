@@ -100,6 +100,20 @@ Headline reporting will include full-harness lift over a bare model, memory and
 pedagogy ablations, and total token usage. Dataset files are not committed; loaders
 expect authorized copies under `data/`.
 
+The current fresh learner-memory arena provides the controlled harness result. On 19
+identical held-out ASSISTments next-answer targets, bounded Teacher Brain notes reached
+AUC 0.7143 versus 0.6357 for stateless GPT-5.6 and 0.7000 for GPT-5.6 with the complete
+raw history. Notes used 35.4% fewer input tokens than full history. Brier calibration
+was 0.1723: better than stateless (0.1922), but slightly worse than full history
+(0.1662). See
+[`packages/evals/assistments/memory-arena-report.md`](packages/evals/assistments/memory-arena-report.md).
+
+The NCTE ghost-classroom arena is reported separately. Its frozen 18-decision run did
+not show lift over bare GPT-5.6 on human move matching. Those labels record what the
+teacher did rather than all pedagogically valid responses, so the result is retained
+as an honest limitation rather than presented as teaching-quality evidence. See
+[`packages/evals/ncte/arena-report.md`](packages/evals/ncte/arena-report.md).
+
 ## Ethics and Privacy
 
 These constraints are enforced in code and documentation:
@@ -131,10 +145,11 @@ M0 is complete: a curl-injected, schema-validated action renders on the live boa
 over FastAPI and WebSocket, including math and highlighting.
 
 M1's harness, ASSISTments, NCTE Tier 1, reporting, and replay implementations pass
-the local fixture suite. The five-student ASSISTments notes condition has completed
-159 held-out predictions against the external dataset; its checked-in report contains
-the agent and pyBKT results with full token accounting. M1 remains partially accepted
-until a complete NCTE run and the controlled memory/pedagogy ablations finish.
+the local fixture suite. The controlled learner-memory arena and NCTE ghost-classroom
+arena have completed on fresh external-data subsets with replayable journals and full
+token accounting. The memory run shows a small AUC lift with a documented calibration
+tradeoff; the NCTE move-matching run is negative and documents why teacher imitation
+is not a sufficient teaching-quality target.
 
 The live classroom path is integrated: the learner-aware Python service produces
 validated teaching turns and persistent student notes, while Classroom Compass owns
@@ -231,9 +246,11 @@ are under `data/` and `OPENAI_API_KEY` is set, run:
 ```bash
 .venv/bin/python scripts/run_assistments_eval.py --max-students 5
 .venv/bin/python scripts/run_ncte_eval.py --max-transcripts 10
+.venv/bin/python scripts/run_ncte_arena.py --observations 3 --decisions 6
 ```
 
 Reports are written to `packages/evals/assistments/report.md` and
-`packages/evals/ncte/report.md`. Session state and JSONL journals stay under the
-gitignored `state/evals/` tree. See [`docs/harness.md`](docs/harness.md) for ablation,
-memory, model-boundary, and deterministic replay details.
+`packages/evals/ncte/report.md`; controlled arena reports live beside them. Session
+state, licensed transcript replays, and JSONL journals stay under the gitignored
+`state/evals/` tree. See [`docs/harness.md`](docs/harness.md) for ablation, memory,
+model-boundary, and deterministic replay details.

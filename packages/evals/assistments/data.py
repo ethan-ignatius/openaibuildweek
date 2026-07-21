@@ -46,6 +46,39 @@ class AssistmentsDataset:
         return ranked[held_out_count:], ranked[:held_out_count]
 
 
+def select_held_out_students(
+    interactions: pd.DataFrame,
+    held_out_students: list[str],
+    *,
+    count: int,
+    offset: int = 0,
+    maximum_interactions: int | None = None,
+) -> list[str]:
+    """Select a deterministic bounded subset without consulting outcomes."""
+
+    if count < 1:
+        raise ValueError("Student count must be positive")
+    if offset < 0:
+        raise ValueError("Student offset cannot be negative")
+    if maximum_interactions is not None and maximum_interactions < 2:
+        raise ValueError("maximum_interactions must be at least 2")
+    counts = interactions.groupby("student_id").size()
+    candidates = held_out_students[offset:]
+    if maximum_interactions is not None:
+        candidates = [
+            student
+            for student in candidates
+            if int(counts.get(student, 0)) <= maximum_interactions
+        ]
+    selected = candidates[:count]
+    if len(selected) < count:
+        raise ValueError(
+            f"Only {len(selected)} held-out students satisfy the selection constraints; "
+            f"{count} requested"
+        )
+    return selected
+
+
 _ALIASES: dict[str, tuple[str, ...]] = {
     "order": ("order_id", "order", "timestamp"),
     "student": ("user_id", "student_id", "Anon Student Id"),

@@ -70,6 +70,28 @@ All conditions receive the same next-item skill tag and never receive the held-o
 response. Report harness lift as `notes` versus `full_context`; report `none`
 separately as the memory-ablation endpoint.
 
+For a fresh, bounded comparison after the first five development students, run all
+three conditions with the same selection arguments and separate reports:
+
+```bash
+.venv/bin/python scripts/run_assistments_eval.py \
+  --chunk-size 20 --max-students 3 --student-offset 5 \
+  --maximum-student-interactions 200 --memory-mode none --skip-pybkt
+
+.venv/bin/python scripts/run_assistments_eval.py \
+  --chunk-size 20 --max-students 3 --student-offset 5 \
+  --maximum-student-interactions 200 --memory-mode full_context --skip-pybkt
+
+.venv/bin/python scripts/run_assistments_eval.py \
+  --chunk-size 20 --max-students 3 --student-offset 5 \
+  --maximum-student-interactions 200 --memory-mode notes --skip-pybkt
+```
+
+Then pass the three session IDs to `scripts/compare_assistments_runs.py`. The
+comparator fails closed unless student pseudonym, sequence index, skill, and external
+outcome match at every prediction point. The aggregate report is written to
+`packages/evals/assistments/memory-arena-report.md`.
+
 ## NCTE Tier 1
 
 Each dataset user must request transcript access through the
@@ -124,6 +146,35 @@ The report includes published reference bars from the
 [NCTE dataset paper](https://aclanthology.org/2023.bea-1.44/) and the
 [ChatGPT baseline artifacts](https://github.com/rosewang2008/zero-shot-teacher-feedback).
 Those references are labeled separately and are excluded from local token totals.
+
+## NCTE Ghost Classroom
+
+The long-horizon arena stops a real transcript immediately after six evenly spaced,
+externally annotated student turns. The actual teacher reply and annotations remain
+hidden while the same model chooses a next move under three conditions:
+
+- `bare` receives the complete real transcript prefix.
+- `scaffolded` adds the exact NCTE discourse vocabulary without persistent state.
+- `full` adds bounded classroom learner/lesson state and requires a strict atomic
+  commit tool call at every decision.
+
+Run the frozen development-scale protocol with:
+
+```bash
+.venv/bin/python scripts/run_ncte_arena.py \
+  --observations 3 --decisions 6 --workers 3
+```
+
+The public aggregate is `packages/evals/ncte/arena-report.md`. The side-by-side
+replay contains authorized transcript text, so it remains under the gitignored
+`state/evals/ncte-arena/<session>/replay.md` path.
+
+NCTE labels describe what the recorded teacher did, not every move that would have
+been pedagogically appropriate. A false positive can therefore be a reasonable agent
+move that differs from the teacher. Treat annotation F1 as controlled move matching,
+not a complete teaching-quality score. Because the recorded transcript resumes after
+each agent decision, persistent-state replay is also off-policy: future student turns
+responded to the human teacher, not the counterfactual agent response.
 
 ## Failure Semantics
 

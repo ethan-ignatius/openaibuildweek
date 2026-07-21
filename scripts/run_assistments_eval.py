@@ -15,7 +15,11 @@ from packages.evals.assistments.agent import (
     run_prediction_loop,
 )
 from packages.evals.assistments.baseline import fit_predict_pybkt
-from packages.evals.assistments.data import AssistmentsDataError, load_assistments
+from packages.evals.assistments.data import (
+    AssistmentsDataError,
+    load_assistments,
+    select_held_out_students,
+)
 from packages.evals.assistments.report import write_assistments_report
 from packages.evals.metrics import BinaryMetrics, binary_metrics
 from packages.harness.config import HarnessConfig, MemoryMode
@@ -44,6 +48,17 @@ def main() -> None:
     )
     parser.add_argument("--chunk-size", type=int, default=10)
     parser.add_argument("--max-students", type=int, default=5)
+    parser.add_argument(
+        "--student-offset",
+        type=int,
+        default=0,
+        help="Skip this many deterministically ranked held-out students.",
+    )
+    parser.add_argument(
+        "--maximum-student-interactions",
+        type=int,
+        help="Only select held-out students at or below this trajectory length.",
+    )
     parser.add_argument("--max-predictions", type=int)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--pybkt-fits", type=int, default=1)
@@ -69,6 +84,13 @@ def main() -> None:
         parser.error("--chunk-size must be positive")
     if arguments.max_students < 1:
         parser.error("--max-students must be positive")
+    if arguments.student_offset < 0:
+        parser.error("--student-offset cannot be negative")
+    if (
+        arguments.maximum_student_interactions is not None
+        and arguments.maximum_student_interactions < 2
+    ):
+        parser.error("--maximum-student-interactions must be at least 2")
     if arguments.max_predictions is not None and arguments.max_predictions < 1:
         parser.error("--max-predictions must be positive")
     if arguments.pybkt_fits < 1:
@@ -107,8 +129,11 @@ def main() -> None:
                 "memory_mode": arguments.memory_mode,
                 "chunk_size": arguments.chunk_size,
                 "max_students": arguments.max_students,
+                "student_offset": arguments.student_offset,
+                "maximum_student_interactions": arguments.maximum_student_interactions,
                 "max_predictions": arguments.max_predictions,
                 "seed": arguments.seed,
+                "model": os.getenv("OPENAI_MODEL", "gpt-5.6"),
             },
         )
     state_directory = journal_directory / session_id
@@ -132,11 +157,26 @@ def main() -> None:
     interactions = dataset.interactions
     training = interactions[interactions["student_id"].isin(training_students)]
     held_out = interactions[interactions["student_id"].isin(held_out_students)]
-    selected_students = held_out_students[: arguments.max_students]
+    selected_students = select_held_out_students(
+        interactions,
+        held_out_students,
+        count=arguments.max_students,
+        offset=arguments.student_offset,
+        maximum_interactions=arguments.maximum_student_interactions,
+    )
     if prior_events:
         started_payload = prior_events[0].get("payload", {})
         if started_payload.get("memory_mode") != arguments.memory_mode:
             raise SystemExit("Resume memory mode does not match the original session")
+        if int(started_payload.get("student_offset", 0)) != arguments.student_offset:
+            raise SystemExit("Resume student offset does not match the original session")
+        if (
+            started_payload.get("maximum_student_interactions")
+            != arguments.maximum_student_interactions
+        ):
+            raise SystemExit(
+                "Resume maximum student interactions does not match the original session"
+            )
     evaluation_held_out = held_out[
         held_out["student_id"].isin(selected_students)
     ]
@@ -224,8 +264,13 @@ def main() -> None:
         )
         raise SystemExit(detail)
 
+    memory_mode = MemoryMode(arguments.memory_mode)
     config = HarnessConfig(
-        memory_mode=MemoryMode(arguments.memory_mode),
+        tool_surface=memory_mode == MemoryMode.NOTES,
+        memory_mode=memory_mode,
+        pedagogy_context="off",
+        orchestration=False,
+        model=os.getenv("OPENAI_MODEL", "gpt-5.6"),
         model_timeout_seconds=arguments.timeout_seconds,
         state_directory=state_directory,
         journal_directory=journal_directory,
@@ -277,7 +322,12 @@ def main() -> None:
         ["_student_order", "sequence_index"], kind="stable"
     ).drop(columns="_student_order")
     usage = progress.usage + new_usage
-    results["Teacher Brain"] = binary_metrics(
+    condition_label = {
+        MemoryMode.NOTES: "Teacher Brain notes",
+        MemoryMode.FULL_CONTEXT: "GPT-5.6 full context",
+        MemoryMode.NONE: "GPT-5.6 stateless",
+    }[memory_mode]
+    results[condition_label] = binary_metrics(
         agent_predictions["correct"].tolist(),
         agent_predictions["probability"].tolist(),
     )
@@ -295,7 +345,7 @@ def main() -> None:
         status="COMPLETE",
         status_detail=(
             f"Completed {len(agent_predictions)} held-out next-item predictions using "
-            "external ASSISTments rows."
+            f"external ASSISTments rows under `{memory_mode.value}` memory."
         ),
         source_sha256=dataset.source_sha256,
         source_encoding=dataset.source_encoding,

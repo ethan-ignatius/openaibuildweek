@@ -15,14 +15,20 @@ from packages.evals.assistments.agent import (
     run_prediction_loop,
 )
 from packages.evals.assistments.baseline import fit_predict_pybkt
+from packages.evals.assistments.comparison import (
+    compare_assistments_sessions,
+    write_assistments_comparison_report,
+)
 from packages.evals.assistments.data import (
     AssistmentsDataError,
     load_assistments,
+    select_held_out_students,
     write_verified_manifest,
 )
 from packages.evals.metrics import binary_metrics, spearman_correlation
 from packages.harness.config import HarnessConfig, MemoryMode
 from packages.harness.learner_memory import LearnerMemory
+from packages.harness.journal import JournalWriter
 from packages.harness.model_client import ModelResult, TokenUsage, ToolRunResult
 
 
@@ -130,6 +136,26 @@ def test_assistments_loader_requires_verified_manifest(tmp_path: Path) -> None:
     source.write_text("order_id,user_id,problem_id,skill_id,correct\n", encoding="utf-8")
     with pytest.raises(AssistmentsDataError, match="provenance manifest"):
         load_assistments(source, min_interactions=2)
+
+
+def test_held_out_selection_skips_development_and_bounds_trajectory() -> None:
+    interactions = pd.DataFrame(
+        [
+            {"student_id": student, "correct": item % 2}
+            for student, length in (("dev", 5), ("long", 12), ("fresh-a", 7), ("fresh-b", 6))
+            for item in range(length)
+        ]
+    )
+
+    selected = select_held_out_students(
+        interactions,
+        ["dev", "long", "fresh-a", "fresh-b"],
+        count=2,
+        offset=1,
+        maximum_interactions=10,
+    )
+
+    assert selected == ["fresh-a", "fresh-b"]
 
 
 def test_assistments_loader_requires_original_problem_column(tmp_path: Path) -> None:
@@ -361,6 +387,72 @@ def test_metrics_match_known_values() -> None:
     assert metrics.brier == pytest.approx(0.025)
     assert metrics.f1 == pytest.approx(1.0)
     assert spearman_correlation([1, 2, 3], [3, 2, 1]) == pytest.approx(-1.0)
+
+
+def test_assistments_comparison_requires_identical_external_targets(
+    tmp_path: Path,
+) -> None:
+    sessions = {
+        "none": "assistments-none",
+        "full_context": "assistments-full",
+        "notes": "assistments-notes",
+    }
+    probabilities = {
+        "none": [0.5, 0.5, 0.5, 0.5],
+        "full_context": [0.2, 0.8, 0.3, 0.7],
+        "notes": [0.1, 0.9, 0.2, 0.8],
+    }
+    for condition, session_id in sessions.items():
+        directory = tmp_path / session_id
+        directory.mkdir()
+        pd.DataFrame(
+            {
+                "student_id": ["assist_a"] * 4,
+                "sequence_index": [10, 20, 30, 40],
+                "skill_id": ["s1", "s2", "s1", "s2"],
+                "correct": [0, 1, 0, 1],
+                "probability": probabilities[condition],
+            }
+        ).to_csv(directory / "agent_predictions.csv", index=False)
+        journal = JournalWriter(tmp_path / f"{session_id}.jsonl", session_id)
+        journal.append(
+            "session.started",
+            {
+                "eval": "assistments",
+                "memory_mode": condition,
+                "model": "gpt-5.6",
+            },
+        )
+        journal.append(
+            "model.response",
+            {"response": "fixture"},
+            token_usage={"input": 10, "output": 5, "total": 15},
+        )
+
+    comparison = compare_assistments_sessions(tmp_path, sessions)
+
+    assert comparison.metrics["notes"].auc == pytest.approx(1.0)
+    assert comparison.usage["none"].total == 15
+    report = tmp_path / "comparison.md"
+    write_assistments_comparison_report(
+        report,
+        comparison,
+        sessions=sessions,
+        chunk_size=20,
+        skipped_development_students=5,
+        maximum_student_interactions=200,
+    )
+    assert "Notes-minus-stateless AUC: **+0.5000**" in report.read_text()
+
+    mismatched = pd.read_csv(
+        tmp_path / sessions["none"] / "agent_predictions.csv"
+    )
+    mismatched.loc[0, "correct"] = 1
+    mismatched.to_csv(
+        tmp_path / sessions["none"] / "agent_predictions.csv", index=False
+    )
+    with pytest.raises(ValueError, match="exact same external targets"):
+        compare_assistments_sessions(tmp_path, sessions)
 
 
 def test_pybkt_baseline_fits_and_returns_finite_aligned_predictions() -> None:
