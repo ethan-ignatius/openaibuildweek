@@ -226,6 +226,94 @@ describe("headless tutor runtime", () => {
     }
   });
 
+  it("keeps the hand-raise gate open for a complete question instead of accepting a partial preamble", async () => {
+    const previous = process.env.CC_REQUIRE_HAND_RAISE;
+    process.env.CC_REQUIRE_HAND_RAISE = "1";
+    try {
+      const store = await storeFor("session-complete-called-on-question-test");
+      const output = new ConsoleClassroomOutput(true);
+      const provider: TutorAnswerProvider = {
+        id: "fixture-science-tutor",
+        answer: vi.fn(async (input) => ({
+          disposition: "answer" as const,
+          answer: `Answer for: ${input.transcript}`,
+          spokenAnswer: "Plants use light energy to make sugar from water and carbon dioxide.",
+          visual: { title: "Photosynthesis", nodes: [{ label: "Light", detail: "Energy reaches the leaf" }], connections: [] },
+          followUpQuestion: "",
+          provider: "fixture-science-tutor",
+          model: "fixture-model",
+        })),
+      };
+      const runtime = new TutorRuntime(store, [], output, provider);
+      await runtime.start();
+      const base = { sessionId: "session-complete-called-on-question-test", source: "live" as const, occurredAt: new Date().toISOString(), provenance: { adapter: "voice", version: "1", confidenceBand: "medium" as const } };
+
+      await runtime.handleEvent({ ...base, id: "raise", kind: "hand_raise", payload: { seat: "camera-center" } });
+      await runtime.handleEvent({ ...base, id: "partial", kind: "response_transcribed", payload: { text: "So that, so that my camera was" } });
+
+      expect(provider.answer).not.toHaveBeenCalled();
+      expect(runtime.snapshot().events.some((event) => event.id === "partial")).toBe(false);
+      expect(runtime.snapshot().audit.some((entry) => entry.action === "called_on_fragment_waiting")).toBe(true);
+
+      await runtime.handleEvent({ ...base, id: "photosynthesis", kind: "response_transcribed", payload: { text: "How does photosynthesis work?" } });
+
+      expect(provider.answer).toHaveBeenCalledOnce();
+      expect(vi.mocked(provider.answer).mock.calls[0][0].transcript).toBe("How does photosynthesis work?");
+      expect(runtime.snapshot().events.find((event) => event.id === "photosynthesis")).toMatchObject({
+        studentRef: "seat:camera-center",
+        payload: { seat: "camera-center", text: "How does photosynthesis work?" },
+      });
+      await runtime.stop();
+    } finally {
+      if (previous === undefined) delete process.env.CC_REQUIRE_HAND_RAISE;
+      else process.env.CC_REQUIRE_HAND_RAISE = previous;
+    }
+  });
+
+  it("discards live-room microphone fragments while the accepted question is being answered", async () => {
+    const previous = process.env.CC_REQUIRE_HAND_RAISE;
+    process.env.CC_REQUIRE_HAND_RAISE = "1";
+    try {
+      const store = await storeFor("session-live-answer-echo-test");
+      const output = new ConsoleClassroomOutput(true);
+      let releaseAnswer!: () => void;
+      const provider: TutorAnswerProvider = {
+        id: "fixture-slow-science-tutor",
+        answer: vi.fn(async () => {
+          await new Promise<void>((resolve) => { releaseAnswer = resolve; });
+          return {
+            disposition: "answer" as const,
+            answer: "Plants turn light energy into stored chemical energy.",
+            spokenAnswer: "Plants turn light energy into stored chemical energy.",
+            visual: { title: "Photosynthesis", nodes: [{ label: "Plant", detail: "Stores energy as sugar" }], connections: [] },
+            followUpQuestion: "",
+            provider: "fixture-slow-science-tutor",
+            model: "fixture-model",
+          };
+        }),
+      };
+      const runtime = new TutorRuntime(store, [], output, provider);
+      await runtime.start();
+      const base = { sessionId: "session-live-answer-echo-test", source: "live" as const, occurredAt: new Date().toISOString(), provenance: { adapter: "voice", version: "1" } };
+      await runtime.handleEvent({ ...base, id: "raise", kind: "hand_raise", payload: { seat: "camera-center" } });
+      const answering = runtime.handleEvent({ ...base, id: "question", kind: "response_transcribed", payload: { text: "How does photosynthesis work?" } });
+      await vi.waitFor(() => expect(provider.answer).toHaveBeenCalledOnce());
+
+      await runtime.handleEvent({ ...base, id: "busy-fragment", kind: "response_transcribed", payload: { text: "Jordan and Sofia asked why one half equals two fourths." } });
+      releaseAnswer();
+      await answering;
+
+      expect(provider.answer).toHaveBeenCalledOnce();
+      expect(runtime.snapshot().events.some((event) => event.id === "busy-fragment")).toBe(false);
+      expect(runtime.snapshot().audit.some((entry) => entry.action === "question_queued")).toBe(false);
+      expect(runtime.snapshot().audit.some((entry) => entry.action === "ambient_transcript_ignored")).toBe(true);
+      await runtime.stop();
+    } finally {
+      if (previous === undefined) delete process.env.CC_REQUIRE_HAND_RAISE;
+      else process.env.CC_REQUIRE_HAND_RAISE = previous;
+    }
+  });
+
   it("serializes simultaneous sensor events without losing the tutoring action", async () => {
     const store = await storeFor("session-concurrent-voice-test");
     const output = new ConsoleClassroomOutput(true);
